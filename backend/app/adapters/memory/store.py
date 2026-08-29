@@ -8,7 +8,6 @@ the two legitimately diverge.
 
 from __future__ import annotations
 
-import copy
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Callable
@@ -29,6 +28,12 @@ class _State:
         self.posts: dict[str, Post] = {}
         self.archived: set[str] = set()
         self.full_bodies: dict[str, str] = {}
+        #: Every repository call against this store, for the tests that assert
+        #: a request was *not* made. It lives on the store rather than on the
+        #: repository so that a log survives across units of work — otherwise
+        #: "did that second feed request hit the database" is unanswerable,
+        #: and the test asserting it passes vacuously.
+        self.calls: list[tuple[str, str]] = []
 
     def snapshot(self) -> "_State":
         clone = _State()
@@ -36,6 +41,8 @@ class _State:
         clone.posts = dict(self.posts)
         clone.archived = set(self.archived)
         clone.full_bodies = dict(self.full_bodies)
+        # Deliberately shared, not copied: a rollback does not un-ask a question.
+        clone.calls = self.calls
         return clone
 
     def restore(self, snapshot: "_State") -> None:
@@ -72,12 +79,14 @@ class InMemoryPostRepository(PostRepository):
     def __init__(self, state: _State, clock: Callable[[], datetime]) -> None:
         self._state = state
         self._clock = clock
-        #: Every call, for the tests that assert a request was *not* made
-        #: (phase-5 §5.7 verifies the preview/full-body split this way).
-        self.calls: list[tuple[str, str]] = []
+
+    @property
+    def calls(self) -> list[tuple[str, str]]:
+        """Every call against this store, shared across units of work."""
+        return self._state.calls
 
     async def list_for_book(self, book_id: BookId) -> list[Post]:
-        self.calls.append(("list_for_book", book_id.value))
+        self._state.calls.append(("list_for_book", book_id.value))
         posts = [
             post
             for post in self._state.posts.values()
@@ -86,11 +95,11 @@ class InMemoryPostRepository(PostRepository):
         return sorted(posts, key=lambda post: post.created_at, reverse=True)
 
     async def get(self, post_id: PostId) -> Post | None:
-        self.calls.append(("get", post_id.value))
+        self._state.calls.append(("get", post_id.value))
         return self._state.posts.get(post_id.value)
 
     async def add(self, post: Post, full_body: str | None = None) -> Post:
-        self.calls.append(("add", str(post.id)))
+        self._state.calls.append(("add", str(post.id)))
         now = self._clock()
         stored = replace(
             post,
@@ -103,7 +112,7 @@ class InMemoryPostRepository(PostRepository):
         return stored
 
     async def update(self, post: Post, full_body: str | None = None) -> Post:
-        self.calls.append(("update", str(post.id)))
+        self._state.calls.append(("update", str(post.id)))
         if post.id is None or post.id.value not in self._state.posts:
             raise KeyError(f"no such post: {post.id}")
         stored = replace(post, edited_at=self._clock())
@@ -112,13 +121,13 @@ class InMemoryPostRepository(PostRepository):
         return stored
 
     async def archive(self, post_id: PostId) -> None:
-        self.calls.append(("archive", post_id.value))
+        self._state.calls.append(("archive", post_id.value))
         if post_id.value not in self._state.posts:
             raise KeyError(f"no such post: {post_id}")
         self._state.archived.add(post_id.value)
 
     async def get_full_body(self, post_id: PostId) -> str:
-        self.calls.append(("get_full_body", post_id.value))
+        self._state.calls.append(("get_full_body", post_id.value))
         post = self._state.posts.get(post_id.value)
         if post is None:
             raise KeyError(f"no such post: {post_id}")
