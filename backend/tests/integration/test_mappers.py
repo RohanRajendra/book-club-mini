@@ -49,6 +49,13 @@ def has_property(row: dict, name: str) -> bool:
     return name in row.get("properties", {})
 
 
+def rows_with_type() -> list[dict]:
+    matching = [row for row in rows() if has_property(row, "Type")]
+    if len(matching) < 2:
+        pytest.skip(f"{MISSING} (query.json needs at least two posts)")
+    return matching
+
+
 class TestBookMapper:
     def test_a_real_book_row_maps_to_a_book(self):
         book = BookMapper().to_domain(load("page_create.json"))
@@ -83,6 +90,32 @@ class TestPostMapper:
         post = PostMapper().to_domain(find_row(lambda row: has_property(row, "Type")))
         assert post.id is not None
         assert isinstance(post.type, PostType)
+
+    def test_a_real_select_value_maps_to_its_enum_member(self):
+        """Guards the fixtures themselves.
+
+        An over-eager scrubber once replaced every select `name` with
+        "scrubbed"; the mapper fell back to Thought and every shape assertion
+        still passed. Asserting a *recognised* value is what catches that.
+        """
+        rows = [PostMapper().to_domain(row) for row in rows_with_type()]
+        assert {post.type for post in rows} == {PostType.THOUGHT, PostType.REPLY}
+        assert all(post.member.value != "scrubbed" for post in rows)
+
+    def test_a_real_reply_row_carries_its_parent_and_copied_position(self):
+        reply = find_row(
+            lambda row: row["properties"].get("Parent Post ID", {}).get("rich_text")
+        )
+        post = PostMapper().to_domain(reply)
+        assert post.type is PostType.REPLY
+        assert post.parent_post_id is not None
+        assert post.position is not None
+
+    def test_a_real_long_post_reports_has_full_body(self):
+        row = find_row(
+            lambda row: row["properties"].get("Has Full Body", {}).get("checkbox")
+        )
+        assert PostMapper().to_domain(row).has_full_body is True
 
     def test_created_and_edited_times_come_from_the_page_object(self):
         row = find_row(lambda row: "created_time" in row)

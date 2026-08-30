@@ -1,0 +1,109 @@
+{
+  "object": "data_source",
+  "id": "3cb63f1a-858a-8027-a49d-000b0e94710a",
+  "cover": null,
+  "icon": null,
+  "created_time": "2026-08-29T19:19:00.000Z",
+  "created_by": {
+    "object": "user",
+    "id": "00000000-0000-0000-0000-000000000000"
+  },
+  "last_edited_by": {
+    "object": "user",
+    "id": "00000000-0000-0000-0000-000000000000"
+  },
+  "last_edited_time": "2026-08-29T19:30:00.000Z",
+  "title": [
+    {
+      "type": "text",
+      "text": {
+        "content": "Books",
+        "link": null
+      },
+      "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+      },
+      "plain_text": "Books",
+      "href": null
+    }
+  ],
+  "description": [],
+  "is_inline": false,
+  "properties": {
+    "Status": {
+      "id": "DNjg",
+      "name": "Status",
+      "description": null,
+      "type": "select",
+      "select": {
+        "options": [
+          {
+            "id": "33d21a75-318f-4389-b9d3-0b2f3bd8d277",
+            "name": "Currently Reading",
+            "color": "blue",
+            "description": null
+          },
+          {
+            "id": "b25b76ec-8a74-4626-8e48-3b4e4ac528d9",
+            "name": "Upcoming",
+            "color": "green",
+            "description": null
+          },
+          {
+            "id": "7a951c86-7e23-4c02-8833-16b1ff044b08",
+            "name": "Paused",
+            "color": "yellow",
+            "description": null
+          },
+          {
+            "id": "23642f26-a38f-4e53-a5be-8f03c935bc4a",
+            "name": "Finished",
+            "color": "red",
+            "description": null
+          }
+        ]
+      }
+    },
+    "Total Chapters": {
+      "id": "IGLO",
+      "name": "Total Chapters",
+      "description": null,
+      "type": "number",
+      "number": {
+        "format": "number"
+      }
+    },
+    "Author": {
+      "id": "Y_DT",
+      "name": "Author",
+      "description": null,
+      "type": "rich_text",
+      "rich_text": {}
+    },
+    "Title": {
+      "id": "title",
+      "name": "Title",
+      "description": null,
+      "type": "title",
+      "title": {}
+    }
+  },
+  "parent": {
+    "type": "database_id",
+    "database_id": "3cb63f1a-858a-80c6-a7b9-fc88fe794a03"
+  },
+  "database_parent": {
+    "type": "page_id",
+    "page_id": "3cb63f1a-858a-80cc-8212-d25833f20a57"
+  },
+  "url": "https://app.notion.com/p/3cb63f1a858a80c6a7b9fc88fe794a03",
+  "public_url": null,
+  "in_trash": false,
+  "archived": false,
+  "request_id": "e843d4f9-3525-4ffb-87b8-0d61c8683ac8"
+}

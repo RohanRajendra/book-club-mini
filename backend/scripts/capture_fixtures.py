@@ -34,22 +34,41 @@ from verify_notion import (  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "notion"
 
-SCRUB_KEYS = {"workspace", "avatar_url", "person", "email", "name"}
+# Only identity-bearing keys. Deliberately NOT "name": a select option value is
+# {"id": ..., "name": "Thought", "color": ...}, and blanking that turns every
+# Type, Status and Member into "scrubbed" — the fixture then asserts nothing and
+# the mapper silently falls back, which is precisely the "green against an API
+# that would reject it" failure these fixtures exist to prevent.
+SCRUB_KEYS = {"avatar_url", "person", "email"}
 SCRUB_OBJECTS = {"user", "bot"}
+
+PLACEHOLDER_ID = "00000000-0000-0000-0000-000000000000"
 
 
 def scrub(value):
-    """Drop workspace and user identity, keep structure."""
+    """Drop user identity, keep every structural and select value."""
     if isinstance(value, dict):
         if value.get("object") in SCRUB_OBJECTS:
-            return {"object": value["object"], "id": "00000000-0000-0000-0000-000000000000"}
+            return {"object": value["object"], "id": PLACEHOLDER_ID}
         return {
-            key: ("scrubbed" if key in SCRUB_KEYS and isinstance(inner, str) else scrub(inner))
+            key: ("scrubbed" if key in SCRUB_KEYS else scrub(inner))
             for key, inner in value.items()
         }
     if isinstance(value, list):
         return [scrub(item) for item in value]
     return value
+
+
+def rich_text_chunks(content: str) -> list[dict]:
+    """A single rich text object caps at 2000 characters.
+
+    The app's own to_rich_text does this; the seed path has to as well, or the
+    append comes back 400 and the post is left claiming a body it does not have.
+    """
+    return [
+        {"type": "text", "text": {"content": content[index : index + 2000]}}
+        for index in range(0, len(content), 2000)
+    ]
 
 
 def write(name: str, payload: dict) -> None:
@@ -96,18 +115,24 @@ def seed_posts(http: httpx.Client, posts_ds: str, book_id: str) -> None:
         },
     ).json()
 
-    http.patch(
+    append = http.patch(
         f"/blocks/{long_post['id']}/children",
         json={
             "children": [
                 {
                     "object": "block",
                     "type": "paragraph",
-                    "paragraph": {"rich_text": [{"type": "text", "text": {"content": body}}]},
+                    "paragraph": {"rich_text": rich_text_chunks(body)},
                 }
             ]
         },
     )
+    if append.status_code >= 400:
+        # Never swallow this: the post already claims Has Full Body, so a
+        # silent failure leaves a "Read more" with nothing behind it.
+        print(f"Block append failed: {append.status_code} {append.text[:300]}")
+        raise SystemExit(1)
+
     print(f"{TICK} Seeded two fixture posts")
     return long_post["id"]
 

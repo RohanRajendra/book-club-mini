@@ -1,0 +1,45 @@
+{
+  "object": "database",
+  "id": "3cb63f1a-858a-80c6-a7b9-fc88fe794a03",
+  "title": [
+    {
+      "type": "text",
+      "text": {
+        "content": "Books",
+        "link": null
+      },
+      "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+      },
+      "plain_text": "Books",
+      "href": null
+    }
+  ],
+  "description": [],
+  "parent": {
+    "type": "page_id",
+    "page_id": "3cb63f1a-858a-80cc-8212-d25833f20a57"
+  },
+  "is_inline": false,
+  "in_trash": false,
+  "is_locked": false,
+  "created_time": "2026-08-29T19:19:18.935+00:00",
+  "last_edited_time": "2026-08-29T19:30:00.632+00:00",
+  "data_sources": [
+    {
+      "id": "3cb63f1a-858a-8027-a49d-000b0e94710a",
+      "name": "Books"
+    }
+  ],
+  "icon": null,
+  "cover": null,
+  "url": "https://app.notion.com/p/3cb63f1a858a80c6a7b9fc88fe794a03",
+  "public_url": null,
+  "archived": false,
+  "request_id": "d3f6d97d-84d8-413d-996a-ca9988dcaeee"
+}
