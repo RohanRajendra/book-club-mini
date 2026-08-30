@@ -1,0 +1,71 @@
+{
+  "object": "page",
+  "id": "3cc63f1a-858a-8134-a435-d40e046eb9b2",
+  "created_time": "2026-08-30T04:13:00.000Z",
+  "last_edited_time": "2026-08-30T04:13:00.000Z",
+  "created_by": {
+    "object": "user",
+    "id": "00000000-0000-0000-0000-000000000000"
+  },
+  "last_edited_by": {
+    "object": "user",
+    "id": "00000000-0000-0000-0000-000000000000"
+  },
+  "cover": null,
+  "icon": null,
+  "parent": {
+    "type": "data_source_id",
+    "data_source_id": "3cb63f1a-858a-8027-a49d-000b0e94710a",
+    "database_id": "3cb63f1a-858a-80c6-a7b9-fc88fe794a03"
+  },
+  "in_trash": false,
+  "is_archived": false,
+  "is_locked": false,
+  "properties": {
+    "Status": {
+      "id": "DNjg",
+      "type": "select",
+      "select": {
+        "id": "33d21a75-318f-4389-b9d3-0b2f3bd8d277",
+        "name": "Currently Reading",
+        "color": "blue"
+      }
+    },
+    "Total Chapters": {
+      "id": "IGLO",
+      "type": "number",
+      "number": null
+    },
+    "Author": {
+      "id": "Y_DT",
+      "type": "rich_text",
+      "rich_text": []
+    },
+    "Title": {
+      "id": "title",
+      "type": "title",
+      "title": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Test Book",
+            "link": null
+          },
+          "annotations": {
+            "bold": false,
+            "italic": false,
+            "strikethrough": false,
+            "underline": false,
+            "code": false,
+            "color": "default"
+          },
+          "plain_text": "Test Book",
+          "href": null
+        }
+      ]
+    }
+  },
+  "url": "https://app.notion.com/p/Test-Book-3cc63f1a858a8134a435d40e046eb9b2",
+  "public_url": null,
+  "archived": false
+}

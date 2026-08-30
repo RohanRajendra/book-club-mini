@@ -1,0 +1,423 @@
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: calc(var(--step) * 6) calc(var(--step) * 4) calc(var(--step) * 20);
+}
+
+/* --- book bar ------------------------------------------------------------ */
+
+.bookbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: calc(var(--step) * 4);
+  flex-wrap: wrap;
+}
+
+.bookbar__title {
+  font-size: 1.75rem;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.bookbar__author {
+  margin: calc(var(--step) * 0.5) 0 0;
+  font-size: 0.9375rem;
+}
+
+.bookbar__right {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--step) * 2);
+  margin-left: auto;
+}
+
+.bookbar__controls {
+  display: flex;
+  align-items: center;
+  gap: var(--step);
+  margin-top: calc(var(--step) * 2);
+  flex-wrap: wrap;
+}
+
+.viewas {
+  display: flex;
+  align-items: center;
+  gap: var(--step);
+  font-size: 0.8125rem;
+}
+
+/* --- spine --------------------------------------------------------------- */
+
+.spine {
+  margin: calc(var(--step) * 8) 0 calc(var(--step) * 6);
+}
+
+.spine__track {
+  position: relative;
+  height: 2px;
+  background: var(--rule);
+  margin: calc(var(--step) * 12) 0 calc(var(--step) * 10);
+}
+
+.spine__track--estimated::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: -1px;
+  width: 18%;
+  height: 4px;
+  background: linear-gradient(to right, var(--rule) 0 2px, transparent 2px 6px)
+    repeat-x;
+  background-size: 6px 2px;
+  background-position: 0 1px;
+}
+
+/* Everything to the right of your own tick carries the blur wash, so the
+   spine explains the blur rule without copy. */
+.spine__ahead {
+  position: absolute;
+  top: -14px;
+  bottom: -14px;
+  background: var(--rule);
+  opacity: 0.38;
+  pointer-events: none;
+}
+
+.spine__tick {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--step) * 0.5);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: default;
+}
+
+.spine__tick--own {
+  cursor: pointer;
+}
+
+.spine__mark {
+  width: 3px;
+  height: 22px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.spine__label {
+  position: absolute;
+  top: -34px;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.spine__when {
+  position: absolute;
+  top: 18px;
+  white-space: nowrap;
+  font-size: 0.75rem;
+}
+
+.spine__end {
+  position: absolute;
+  right: 0;
+  top: 18px;
+}
+
+.spine__empty {
+  text-align: center;
+  padding: calc(var(--step) * 6) 0;
+}
+
+/* --- quick progress ------------------------------------------------------ */
+
+.quick {
+  display: flex;
+  align-items: center;
+  gap: var(--step);
+  padding: calc(var(--step) * 3);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  margin-bottom: calc(var(--step) * 4);
+  flex-wrap: wrap;
+}
+
+.quick input {
+  width: 6.5rem;
+}
+
+/* --- composer ------------------------------------------------------------ */
+
+.composer {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: calc(var(--step) * 4);
+  margin-bottom: calc(var(--step) * 4);
+  animation: expand var(--motion) ease-out;
+}
+
+@keyframes expand {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.composer__types {
+  display: flex;
+  gap: var(--step);
+  margin-bottom: calc(var(--step) * 3);
+}
+
+.composer__type {
+  border-color: var(--rule);
+}
+
+.composer__type[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--surface);
+  border-color: var(--ink);
+}
+
+.composer__row {
+  display: flex;
+  gap: var(--step);
+  margin-bottom: calc(var(--step) * 2);
+  flex-wrap: wrap;
+}
+
+.composer__row input {
+  width: 7rem;
+}
+
+.composer textarea {
+  width: 100%;
+  min-height: 7rem;
+}
+
+.composer__footer {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--step) * 2);
+  margin-top: calc(var(--step) * 3);
+  flex-wrap: wrap;
+}
+
+.composer__footer .spacer {
+  margin-left: auto;
+}
+
+.primary {
+  background: var(--ink);
+  color: var(--surface);
+  border-color: var(--ink);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--ink);
+  opacity: 0.9;
+}
+
+.danger {
+  color: var(--reader-b);
+}
+
+/* --- chips --------------------------------------------------------------- */
+
+.chips {
+  display: flex;
+  gap: var(--step);
+  margin: calc(var(--step) * 5) 0 calc(var(--step) * 3);
+  flex-wrap: wrap;
+}
+
+.chip {
+  border-color: var(--rule);
+  font-size: 0.875rem;
+  padding: var(--step) calc(var(--step) * 2.5);
+}
+
+.chip[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--surface);
+  border-color: var(--ink);
+}
+
+.chip__count {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  opacity: 0.7;
+  margin-left: calc(var(--step) * 1.5);
+}
+
+/* --- feed ---------------------------------------------------------------- */
+
+.feed {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--step) * 3);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: calc(var(--step) * 4);
+}
+
+.card__head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--step) * 2);
+  flex-wrap: wrap;
+}
+
+.initial {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--surface);
+  background: currentColor;
+  flex: none;
+}
+
+.initial span {
+  color: var(--surface);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.card__member {
+  font-weight: 600;
+}
+
+.card__body {
+  margin: calc(var(--step) * 2.5) 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.card__actions {
+  display: flex;
+  gap: var(--step);
+  margin-top: calc(var(--step) * 2);
+}
+
+.card__actions button {
+  padding: calc(var(--step) * 0.5) var(--step);
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.card__actions button:hover {
+  color: var(--ink);
+}
+
+/* --- blur ---------------------------------------------------------------- */
+
+.blur {
+  position: relative;
+  margin-top: calc(var(--step) * 2.5);
+}
+
+.blur__body {
+  filter: blur(5px);
+  user-select: none;
+  pointer-events: none;
+  background: var(--rule);
+  opacity: 0.55;
+  border-radius: var(--radius);
+  padding: calc(var(--step) * 2);
+  min-height: 3.5rem;
+  white-space: pre-wrap;
+  transition: filter var(--motion) ease-out;
+}
+
+.blur__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--step);
+  text-align: center;
+}
+
+/* --- replies ------------------------------------------------------------- */
+
+.replies {
+  margin: calc(var(--step) * 3) 0 0 calc(var(--step) * 2);
+  padding-left: calc(var(--step) * 4);
+  border-left: 1px solid currentColor;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--step) * 3);
+}
+
+.reply {
+  padding: 0;
+}
+
+/* --- misc ---------------------------------------------------------------- */
+
+.notice {
+  padding: calc(var(--step) * 3);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--surface);
+  margin-bottom: calc(var(--step) * 3);
+}
+
+.empty {
+  text-align: center;
+  padding: calc(var(--step) * 10) 0;
+}
+
+.dialog {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: calc(var(--step) * 4);
+  margin-bottom: calc(var(--step) * 4);
+}
+
+.dialog__grid {
+  display: grid;
+  gap: calc(var(--step) * 2);
+  grid-template-columns: 1fr 1fr;
+}
+
+.dialog__grid label {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--step) * 0.5);
+  font-size: 0.875rem;
+}
+
+.dialog__grid label.wide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 420px) {
+  .app {
+    padding: calc(var(--step) * 4) calc(var(--step) * 3) calc(var(--step) * 16);
+  }
+
+  .dialog__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bookbar__title {
+    font-size: 1.4rem;
+  }
+}

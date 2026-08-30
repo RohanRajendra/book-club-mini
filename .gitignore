@@ -216,3 +216,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---- book-club-mini ----
+# The Python packaging rule `lib/` above would otherwise swallow the frontend's
+# pure-helper directory. Keep it tracked.
+!frontend/src/lib/
+!frontend/src/lib/**
+
+.DS_Store
+node_modules/
+frontend/dist/
+frontend/coverage/
