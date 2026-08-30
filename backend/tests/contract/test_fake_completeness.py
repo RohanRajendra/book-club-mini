@@ -66,9 +66,9 @@ def fake_only_tests() -> list[str]:
 
 
 def test_the_contract_carries_exactly_three_fake_only_markers():
-    """Three, not the two the phase files ask for — all three share one root
-    cause, and the count is reconciled in docs/spec-deltas.md D1. A fourth
-    should prompt a design conversation rather than another marker."""
+    """All three share one root cause: a store without transactions cannot
+    provide real rollback. A fourth marker should prompt a review of the port
+    design rather than another marker."""
     assert sorted(fake_only_tests()) == [
         "test_rollback_discards_an_added_post",
         "test_rollback_discards_an_update",

@@ -23,7 +23,7 @@ class FeedQuery:
 class GetFeed:
     """One data-source query per feed load, plus one book read, and no
     per-post requests. That last clause is the property the rate limit makes
-    load-bearing (docs/spec-deltas.md D2)."""
+    load-bearing."""
 
     def __init__(
         self,

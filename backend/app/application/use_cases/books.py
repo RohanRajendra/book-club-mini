@@ -16,8 +16,8 @@ from app.domain.result import Err, Ok, Result
 from app.domain.values import BookId, BookStatus
 from app.ports.unit_of_work import UnitOfWork
 
-#: The order the book dropdown groups by (01-ux-spec.md §Book bar). Notion
-#: cannot sort by select option order, so this happens in Python.
+#: The order the book dropdown groups by. Notion cannot sort by select option
+#: order, so this happens in Python.
 STATUS_ORDER = [
     BookStatus.CURRENTLY_READING,
     BookStatus.UPCOMING,

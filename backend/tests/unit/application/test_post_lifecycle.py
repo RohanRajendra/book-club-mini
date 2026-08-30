@@ -329,7 +329,7 @@ class TestGetPostBody:
     ):
         """The point of the whole preview/full-body split: one saved request.
         Asserted against the repository's call log, not a mock
-        (docs/spec-deltas.md D11)."""
+."""
         async with seeded:
             post = await seeded.posts.add(
                 make_post(id=None, book_id=BOOK, body_preview="Short.")

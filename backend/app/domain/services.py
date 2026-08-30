@@ -11,7 +11,7 @@ from app.domain.values import MemberName, Position, PostType
 MAX_BODY = 200_000
 
 #: Floor for an inferred spine scale. A known total gives the true scale, even
-#: when it is smaller than this (01-ux-spec.md §Scale calibration).
+#: when it is smaller than this.
 MIN_SCALE = 10
 
 #: Inferred scales get 20% headroom so the newest tick is not pinned to the edge.
@@ -82,7 +82,7 @@ class ScaleCalculator:
         the number was adjusted. A stated total that a post overshoots is still
         not an estimate — the overshoot is a data error in Notion, and the
         spine's job is to stay honest about its source while still containing
-        the post (docs/spec-deltas.md D6).
+        the post.
         """
         observed = observed_max or 0
         if total_chapters is not None:

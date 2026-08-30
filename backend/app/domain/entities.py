@@ -2,13 +2,12 @@
 
 These guards enforce the invariants that must hold *everywhere*. Rules that
 depend on another object — that a reply's parent is not itself a reply, that a
-parent shares the reply's book — belong to use cases in Phase 5. The entity
-cannot see the parent.
+parent shares the reply's book — belong to the use cases. The entity cannot see
+the parent.
 
 The guards raise `ValueError`, which is not how expected failures are reported.
 That is deliberate: use cases validate input and return `Err` before constructing
 anything, and these remain as last-line assertions against a programming error.
-See docs/spec-deltas.md D5.
 """
 
 from __future__ import annotations
@@ -24,7 +23,7 @@ PREVIEW_LIMIT = 1900
 
 #: Below this, a difference between created_at and last_edited_time is the
 #: write path talking, not a member. Creating a long post is a page write then a
-#: block append, and the append bumps last_edited_time (spec-deltas D10).
+#: block append, and the append bumps last_edited_time.
 EDIT_THRESHOLD = timedelta(seconds=60)
 
 

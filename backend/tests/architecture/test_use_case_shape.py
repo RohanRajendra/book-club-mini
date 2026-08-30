@@ -1,4 +1,4 @@
-"""Architecture tests for the application layer (phase-5 acceptance)."""
+"""Architecture tests for the application layer."""
 
 from __future__ import annotations
 
@@ -77,7 +77,7 @@ def _names_used_in(package: Path) -> set[str]:
 
 
 def test_every_domain_error_is_returned_by_at_least_one_use_case():
-    """phase-5 acceptance: returned by a use case, or deleted.
+    """Every declared error is returned by a use case, or it is deleted.
 
     An error nothing can produce is a mapping the HTTP layer maintains for a
     response that never happens.

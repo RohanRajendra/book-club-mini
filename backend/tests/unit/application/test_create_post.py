@@ -1,6 +1,6 @@
 """CreatePost — the most rule-dense object in the app.
 
-Each rule here is a decision from 01-ux-spec.md, restated in the test name.
+Each test name states the rule it pins.
 """
 
 from __future__ import annotations

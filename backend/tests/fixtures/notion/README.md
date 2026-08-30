@@ -1,38 +1,54 @@
-# Real Notion response fixtures
+# Recorded Notion responses
 
-`phase-1-notion-and-scaffold.md` §1.6 and `phase-4-notion-adapter.md` §4.4 require
-the mapper tests to run against **real recorded Notion responses**, not
-hand-written payloads: "hand-written approximations are how a suite goes green
-against an API that would reject it."
+The mapper tests in `tests/integration/test_mappers.py` run against **real
+recorded responses** rather than hand-written payloads. Hand-written
+approximations are how a suite goes green against an API that would reject it,
+so those tests skip rather than substitute one when these files are absent.
 
-These files are not committed yet because the Notion workspace does not exist
-yet. `tests/integration/test_mappers.py` skips with a pointer to this file until
-they are here.
+## Capturing
 
-## Capturing them
+With `backend/.env` configured and the databases created — see
+[docs/notion-setup.md](../../../../docs/notion-setup.md):
 
-With `backend/.env` filled in and the databases created (see
-`docs/notion-setup.md`):
-
-```
+```bash
 cd backend
-.venv/bin/python scripts/verify_notion.py --seed          # one row to query
-.venv/bin/python scripts/capture_fixtures.py
+.venv/bin/python scripts/verify_notion.py --seed      # one book to query
+.venv/bin/python scripts/capture_fixtures.py --seed-posts
 ```
 
-That writes the five files below, scrubbing workspace and user IDs:
+That writes the five files below, scrubbing user identity:
 
 | File | Source |
-|---|---|
-| `database.json` | `GET /v1/databases/{books db id}` |
-| `data_source.json` | `GET /v1/data_sources/{books ds id}` |
-| `query.json` | `POST /v1/data_sources/{posts ds id}/query` — needs ≥2 rows |
-| `page_create.json` | `POST /v1/pages` |
+| --- | --- |
+| `database.json` | `GET /v1/databases/{books database id}` |
+| `data_source.json` | `GET /v1/data_sources/{books data source id}` |
+| `query.json` | `POST /v1/data_sources/{posts data source id}/query` |
+| `page_create.json` | A book row as returned by `POST /v1/pages` |
 | `block_children.json` | `GET /v1/blocks/{page id}/children` |
 
-`query.json` wants two posts with different shapes to be worth having: one short
-top-level post and one long reply. Post them in the app, or let
-`capture_fixtures.py` create them with `--seed-posts`.
+`query.json` needs at least two posts of different shapes to be worth having:
+one short top-level post and one long reply. `--seed-posts` creates both, along
+with the body block that `block_children.json` records.
 
-Then re-run `pytest tests/integration/test_mappers.py` and the skips become
-assertions.
+Omit `--seed-posts` to capture from content that already exists.
+
+## Scrubbing
+
+Only identity-bearing keys are removed: `avatar_url`, `person`, `email`, and any
+object whose `object` field is `user` or `bot`.
+
+Select option values are deliberately **preserved**. An earlier version blanked
+every key named `name`, which includes the `name` inside a select value — every
+`Type`, `Status` and `Member` became `"scrubbed"`, the mapper silently fell back
+to its defaults, and every shape assertion still passed.
+`test_a_real_select_value_maps_to_its_enum_member` exists to catch exactly that,
+by asserting the mapped values are *recognised* enum members rather than merely
+present.
+
+Page and block identifiers are kept. The mapper reads them, and they are
+meaningless outside the workspace they came from.
+
+## Refreshing
+
+Recapture whenever the Notion schema changes or the API version is raised. The
+files are committed so the suite runs without network access.

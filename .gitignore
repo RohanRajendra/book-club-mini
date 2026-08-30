@@ -219,10 +219,11 @@ __marimo__/
 
 # ---- book-club-mini ----
 # The Python packaging rule `lib/` above would otherwise swallow the frontend's
-# pure-helper directory (phase-7 §7.3). Keep it tracked.
+# pure-helper directory. Keep it tracked.
 !frontend/src/lib/
 !frontend/src/lib/**
 
 .DS_Store
 node_modules/
 frontend/dist/
+frontend/coverage/

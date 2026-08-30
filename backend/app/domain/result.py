@@ -5,9 +5,9 @@ a reply, an oversized body. Returning them keeps the failure set visible in the
 signature and keeps TDD assertions direct. Exceptions stay reserved for genuine
 faults: network failure, misconfiguration, bugs.
 
-The surface is deliberately small (02-architecture.md §Result objects): `is_ok`,
-`unwrap`, `unwrap_err`, `map`. `and_then`, `or_else` and the rest of the
-combinator family are not here until something needs them.
+The surface is deliberately small: `is_ok`, `unwrap`, `unwrap_err`, `map`.
+`and_then`, `or_else` and the rest of the combinator family are not here until
+something needs them.
 """
 
 from __future__ import annotations

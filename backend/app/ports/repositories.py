@@ -4,8 +4,7 @@ Methods take and return **domain entities**, never Notion dicts. Notion's
 property shapes stop at the mapper.
 
 The two repositories stay separate even though one unit of work supplies both,
-so a use case that only reads books cannot reach posts (02-architecture.md
-§Interface segregation).
+so a use case that only reads books cannot reach posts.
 """
 
 from __future__ import annotations

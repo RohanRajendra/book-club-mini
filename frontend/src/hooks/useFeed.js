@@ -14,7 +14,7 @@ export const FILTERS = {
  *
  * Filtering is client-side. The response carries counts for all four chips, so
  * filtering server-side would cost the counts of the types it filtered out —
- * and a chip click would cost a request (docs/spec-deltas.md D3).
+ * and a chip click would cost a request.
  */
 export function useFeed(bookId, { as } = {}) {
   const [feed, setFeed] = useState(null)

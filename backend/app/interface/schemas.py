@@ -101,7 +101,7 @@ class FeedResponse(BaseModel):
     #: assigned by index, and the spine renders "hasn't started" as a state.
     positions: list[MemberPositionResponse]
     spine: SpineResponse
-    #: All four chip counts, so the client filters locally (spec-deltas D3).
+    #: All four chip counts, so the client filters locally.
     counts: dict[str, int]
 
     @classmethod

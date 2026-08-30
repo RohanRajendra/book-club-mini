@@ -2,7 +2,7 @@
 
 `httpx.ASGITransport` does not run ASGI lifespan events, so the container that
 `main.py` builds in its lifespan handler never exists here. The fixture builds
-one with in-memory adapters and attaches it directly (docs/spec-deltas.md D15).
+one with in-memory adapters and attaches it directly.
 
 That is exactly the capability the container exists to provide — the same seam
 scripts use — so the tests are possible *because* of the composition root, not

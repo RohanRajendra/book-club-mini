@@ -61,7 +61,7 @@ async def test_the_clock_is_injected_so_timestamps_are_deterministic(uow):
 
 
 async def test_the_repository_records_its_calls(uow):
-    """phase-5 §5.7 asserts on this log rather than reaching for a mock."""
+    """Use cases assert on this log rather than reaching for a mock."""
     async with uow:
         stored = await uow.posts.add(make_post(id=None))
         await uow.posts.get(stored.id)

@@ -1,11 +1,10 @@
 """No Notion property name may appear outside `app/adapters/notion/`.
 
-Notion's property names are the most fragile knowledge in the codebase
-(02-architecture.md §Mapper). Keeping them in one module is what makes a rename in
-Notion a one-file change.
+Notion's property names are the most fragile knowledge in the codebase. Keeping
+them in one module is what makes a rename in Notion a one-file change.
 
-The scan covers `app/` only. `scripts/verify_notion.py` is deliberately outside it:
-phase-1 §1.5 defines it as a standalone operator tool, not part of the app.
+The scan covers `app/` only. `scripts/verify_notion.py` is deliberately outside
+it: it is a standalone operator tool, not part of the application.
 
 This file names the properties in order to look for them, so it exempts itself.
 """

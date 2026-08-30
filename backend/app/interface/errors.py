@@ -28,7 +28,7 @@ STATUS_BY_CODE: dict[str, int] = {
 }
 
 #: Matches the UX copy exactly, so the frontend can display it verbatim rather
-#: than substituting its own (01-ux-spec.md §Empty and error copy).
+#: than substituting its own.
 NOTION_UNREACHABLE = "Can't reach Notion right now. Try refreshing."
 
 UNEXPECTED = "Something went wrong. Try refreshing."

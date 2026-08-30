@@ -4,9 +4,9 @@ These are values carried by `Err`, not exceptions — deliberately, so that rais
 one is impossible and the only way to signal an expected failure is to return it.
 Genuine faults (network, misconfiguration, bugs) stay as real exceptions.
 
-`code` is what interface/errors.py maps to an HTTP status in Phase 6. An
-architecture test asserts every subclass here appears in that table, because the
-default for an unmapped error would be a silent 500.
+`code` is what interface/errors.py maps to an HTTP status. An architecture test
+asserts every subclass here appears in that table, because the default for an
+unmapped error would be a silent 500.
 """
 
 from __future__ import annotations

@@ -191,13 +191,13 @@ class TestScaleCalculator:
 
     def test_scale_extends_past_a_stated_total_without_becoming_estimated(self):
         """is_estimated tracks whether the book told us its length, not whether
-        the number was adjusted (spec-deltas D6)."""
+        the number was adjusted."""
         assert self.scale(total_chapters=30, observed_max=400) == (400, False)
 
     def test_a_stated_total_below_the_minimum_is_still_the_true_scale(self):
-        """The minimum of ten belongs to the inferred branch only. 01-ux-spec.md
-        says a known total gives the true scale, and a 3-chapter novella must
-        not be drawn as a 10-chapter book."""
+        """The minimum of ten belongs to the inferred branch only. A known total
+        gives the true scale, and a 3-chapter novella must not be drawn as a
+        10-chapter book."""
         assert self.scale(total_chapters=3, observed_max=None) == (3, False)
 
     def test_headroom_rounds_up(self):

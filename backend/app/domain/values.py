@@ -31,7 +31,7 @@ class _Identifier:
 
     Distinct subclasses never compare equal, so passing a book id where a post
     id belongs fails at the boundary — at runtime, since the project runs no
-    type checker (docs/spec-deltas.md D8).
+    type checker.
     """
 
     value: str

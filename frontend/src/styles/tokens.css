@@ -1,5 +1,4 @@
-/* The only place a colour or font literal may appear.
-   01-ux-spec.md §Visual direction. */
+/* The only place a colour or font literal may appear. */
 
 :root {
   --field: #e7e9e4; /* page ground, cool sage-grey */

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Record real Notion responses into tests/fixtures/notion/.
 
-phase-1 §1.6. The mapper tests in Phase 4 depend on real payload shapes, and
-hand-written approximations are how a suite goes green against an API that
-would reject it.
+The mapper tests depend on real payload shapes, and hand-written approximations
+are how a suite goes green against an API that would reject it.
 
     python scripts/capture_fixtures.py
     python scripts/capture_fixtures.py --seed-posts   # create two posts first

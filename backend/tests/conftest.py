@@ -1,13 +1,13 @@
 """Shared pytest configuration.
 
-The `fake_only` marker (03-testing-strategy.md §Contract tests) sits on the shared
-abstract contract class, so it applies to *every* subclass — including the
-in-memory one it is meant to let through. Registering the marker skips nothing on
-its own; this hook is what makes it mean something. See docs/spec-deltas.md D12.
+The `fake_only` marker sits on the shared abstract contract class, so it applies
+to *every* subclass — including the in-memory one it is meant to let through.
+Registering the marker skips nothing on its own; this hook is what makes it mean
+something.
 
 Skipping keys on a declared capability rather than a class name, so a future
-SQLite adapter with real transactions runs those tests automatically. That is the
-concrete meaning of the swappability goal in phase-8 §8.7.
+adapter with real transactions runs those tests automatically. That is the
+concrete meaning of the swappability goal.
 """
 
 import pytest

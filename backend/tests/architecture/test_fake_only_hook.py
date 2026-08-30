@@ -2,7 +2,7 @@
 
 Registering a marker only satisfies --strict-markers. The marker sits on the
 shared contract class, so it applies to every subclass — including the in-memory
-one it is meant to let through. See docs/spec-deltas.md D12.
+one it is meant to let through. This hook is what makes it selective.
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ def test_an_unmarked_test_is_untouched():
 
 
 def test_a_fake_only_marker_without_a_reason_is_an_error():
-    """Every such marker needs a reason string (03-testing-strategy.md)."""
+    """Every such marker needs a reason string."""
     item = FakeItem(fake_only(), Compensating)
     with pytest.raises(pytest.UsageError, match="reason"):
         pytest_collection_modifyitems([item])

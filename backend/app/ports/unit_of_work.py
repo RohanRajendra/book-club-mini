@@ -26,7 +26,7 @@ class UnitOfWork(ABC):
     #: Callbacks invoked after a successful commit and never after a rollback.
     #: The container registers the feed cache's invalidation here, which is how
     #: invalidation happens in exactly one place instead of at every write site
-    #: (docs/spec-deltas.md D7).
+    #:.
     on_commit: list[Callable[[], None]]
 
     async def __aenter__(self) -> "UnitOfWork":

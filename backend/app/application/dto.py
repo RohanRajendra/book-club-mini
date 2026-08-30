@@ -38,5 +38,5 @@ class Feed:
     positions: dict[MemberName, Position | None]
     spine: Spine
     #: Counts for all four filter chips, so the client can filter locally
-    #: without losing the counts of the types it filtered out (spec-deltas D3).
+    #: without losing the counts of the types it filtered out.
     counts: dict[str, int]

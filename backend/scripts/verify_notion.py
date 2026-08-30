@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Check that the Notion workspace matches the schema this app expects.
 
-Standalone operator tool: httpx only, no app imports, not under test
-(phase-1 §1.5). Run it after creating the databases and after any hand-edit in
-Notion.
+Standalone operator tool: httpx only, no app imports, not under test. Run it
+after creating the databases and after any hand-edit in Notion.
 
     python scripts/verify_notion.py
     python scripts/verify_notion.py --seed

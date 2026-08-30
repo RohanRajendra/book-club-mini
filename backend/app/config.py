@@ -4,8 +4,8 @@ MEMBERS is the full roster and must contain MEMBER_NAME. An installation that is
 not in its own roster renders a broken spine and attributes posts to a member the
 app does not know about, so this fails at startup rather than at first render.
 
-Roster *order* is significant: reader colours are assigned by index (01-ux-spec.md
-§Visual direction), so both installations must list the members identically.
+Roster *order* is significant: reader colours are assigned by index, so both
+installations must list the members identically.
 """
 
 from typing import Annotated

@@ -39,10 +39,10 @@ export function useComposer({ viewerPosition, onSubmit } = {}) {
   const setField = useCallback((name, value) => {
     setFields((current) => {
       const next = { ...current, [name]: value }
-      // Clearing the chapter clears the page with it. 01-ux-spec.md says a
-      // prefilled position is clearable and that the app does not warn about
-      // the result, so the page-needs-a-chapter state is made unreachable
-      // rather than reported back as an error the member has to fix.
+      // Clearing the chapter clears the page with it. A prefilled position is
+      // clearable and the app does not warn about the result, so the
+      // page-needs-a-chapter state is made unreachable rather than reported
+      // back as an error the member has to fix.
       if (name === 'chapter' && !value.trim()) next.page = ''
       return next
     })

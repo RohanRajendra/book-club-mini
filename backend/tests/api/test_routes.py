@@ -1,6 +1,6 @@
 """HTTP concerns only: status codes, DTO shape, validation, error mapping.
 
-Business assertions belong in the Phase 5 unit tests.
+Business assertions belong in the application-layer unit tests.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from tests.api.conftest import BOOK
 
 async def test_health_reports_both_data_source_ids(client, container):
     """On in-memory adapters there are no data source IDs to report; the shape
-    is what this asserts. The real IDs are checked live (spec-deltas D15)."""
+    is what this asserts. The real IDs are checked live."""
     response = await client.get("/api/health")
     assert response.status_code == 200
     assert set(response.json()) == {

@@ -33,14 +33,14 @@ def test_every_mapped_status_is_a_client_error(code, status):
 
 
 def test_the_notion_message_matches_the_ux_copy_exactly():
-    """01-ux-spec.md §Empty and error copy. The frontend displays it verbatim
-    rather than substituting its own."""
+    """The frontend displays this message verbatim rather than substituting its
+    own, so the two must not drift apart."""
     assert NOTION_UNREACHABLE == "Can't reach Notion right now. Try refreshing."
 
 
 def test_no_cors_middleware_anywhere_in_the_codebase():
-    """phase-6 §6.6: the Vite dev proxy puts both servers on one origin. If a
-    CORS error appears, the proxy is misconfigured — fix the proxy.
+    """The Vite dev proxy puts both servers on one origin. If a CORS error
+    appears, the proxy is misconfigured — fix the proxy.
 
     Looks for the identifier in code, not the word in prose: main.py's
     docstring says why CORS is absent, and that comment is the point.

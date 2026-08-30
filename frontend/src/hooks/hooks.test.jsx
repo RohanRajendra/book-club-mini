@@ -131,7 +131,7 @@ describe('useFeed', () => {
 
   it('does not refetch when the filter changes', async () => {
     // Filtering is client-side, so a chip click must cost zero requests and
-    // must not lose the counts of the filtered-out types (spec-deltas D3).
+    // must not lose the counts of the filtered-out types.
     let calls = 0
     feedRoute(() => {
       calls += 1

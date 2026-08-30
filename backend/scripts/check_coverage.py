@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Apply the per-package coverage thresholds from 03-testing-strategy.md.
+"""Apply the per-package coverage thresholds.
 
-`pytest-cov` accepts one global --cov-fail-under, but the strategy names four
+`pytest-cov` accepts one global --cov-fail-under, but this project sets four
 different targets. This reads the coverage data pytest already wrote and applies
-them per package (docs/spec-deltas.md D14).
+them per package.
 
     pytest --cov=app --cov-branch
     python scripts/check_coverage.py
@@ -21,7 +21,7 @@ from coverage.exceptions import NoDataError
 
 BACKEND = Path(__file__).resolve().parents[1]
 
-# 03-testing-strategy.md §Coverage targets. ports/ is ABCs only and is excluded.
+# ports/ holds abstract base classes only and is excluded.
 THRESHOLDS = {
     "app/domain": 100.0,
     "app/application": 100.0,

@@ -1,17 +1,13 @@
 # Pattern register
 
-One entry per pattern in `prompt-library/02-architecture.md`: what it is, the
-requirement that justified it, and what would have to change for it to be
-removed.
+One entry per architectural pattern: what it is, the requirement that justified
+it, and what would have to change for it to be removed.
 
-This file exists to stop the next person from either ripping out abstractions
-that are load-bearing or adding more by pattern-matching. The rule from `02`
-holds: **every abstraction must be traceable to a stated requirement** — either
-testability, or the goal of being able to swap Notion for another database. One
-that serves neither is ceremony.
-
-Divergences from the specification are recorded separately, in
-[spec-deltas.md](spec-deltas.md).
+This file exists to stop the next person from either removing abstractions that
+are load-bearing or adding more by pattern-matching. The governing rule is that
+**every abstraction must be traceable to a stated requirement** — either
+testability, or the goal of being able to replace Notion with another database.
+One that serves neither is ceremony.
 
 ---
 
@@ -21,8 +17,8 @@ Divergences from the specification are recorded separately, in
 domain entities. Notion's property shapes stop at the mapper.
 
 **Justified by.** The database-swap goal, and it is what lets every application
-test run against an in-memory fake instead of HTTP. Phase 5's 92 tests touch no
-network because of this one seam.
+test run against an in-memory fake instead of HTTP. The 92 application-layer
+tests touch no network because of this one seam.
 
 **Removable when.** Never, while there is more than one implementation. If the
 Notion adapter became the only one and swapping were abandoned, the ports could
@@ -53,23 +49,21 @@ acceptable for two people and both are in the README.
 
 ---
 
-## `on_commit` hook — added, not in `02`
+## `on_commit` hook
 
 **What.** `UnitOfWork.on_commit: list[Callable[[], None]]`, fired after a
 successful commit and never after a rollback. The container registers the feed
 cache's `invalidate`.
 
-**Justified by.** `02` and `phase-5` both require cache invalidation to happen in
-exactly one place, hooked to successful commit — but the port as specified had
-no seam for it, and `application/` may not import `adapters/`. Without this the
-requirement is unimplementable, and invalidation has to be repeated at eight
-write sites with a matching assertion in eight test modules.
+**Justified by.** Cache invalidation must happen in exactly one place, tied to a
+successful commit. Without a hook on the port there is no such place —
+`application/` may not import `adapters/` — and invalidation would have to be
+repeated at eight write sites, with a matching assertion in eight test
+modules.
 
 **Removable when.** The cache is removed, or something else takes ownership of
 invalidation. It is contract-tested against both adapters, so a third adapter
 gets it for free.
-
-Recorded as delta D7.
 
 ---
 
@@ -88,7 +82,7 @@ architecture test both depend on it.
 **Note.** `DomainError` is deliberately **not** an exception, so raising one is
 impossible and the only way to signal an expected failure is to return it.
 Entity guards raise `ValueError` instead, and those are last-line assertions
-against a programming error, not input validation (delta D5).
+against a programming error, not input validation.
 
 **Not added.** `and_then`, `or_else` and the rest of the combinator family.
 Nothing has needed them.
@@ -148,7 +142,7 @@ a Notion query each time. Measured live at 0 requests for a cached load.
 
 **Note.** The key includes the **viewer** because spoiler flags are
 viewer-specific; without it the *View as* control serves one member's blur state
-to the other (delta D4).
+to the other.
 
 ---
 
@@ -163,8 +157,7 @@ verification script and the whole API test suite both build one directly.
 
 **Removable when.** Never, while tests build the graph. Its `uow_factory`
 parameter is the seam that makes an in-memory container possible, and
-`ASGITransport` not running lifespan means the API tests depend on it (delta
-D15).
+`ASGITransport` not running lifespan means the API tests depend on it.
 
 **Not added.** A DI framework. String-keyed provider wiring reads worse than the
 explicit constructor calls, and the wiring is the part a newcomer most needs to
@@ -183,7 +176,7 @@ the in-memory adapter trustworthy as a test double for every later test.
 
 **Note.** It passed against `NotionUnitOfWork` on the first run, which is the
 strongest evidence available that the ports describe persistence rather than
-describing the fake. Three tests carry `fake_only` (delta D1); the marker is
+describing the fake. Three tests carry `fake_only`; the marker is
 keyed on a declared `supports_transactions` capability, so a SQLite adapter with
 real transactions would run them automatically.
 

@@ -46,7 +46,7 @@ class TestBook:
         assert book.total_chapters is None
 
     def test_an_unsaved_book_has_no_id(self):
-        """A book being created has no Notion page yet (spec-deltas D9)."""
+        """A book being created has no Notion page yet."""
         assert Book(title="Piranesi").id is None
 
 
@@ -78,7 +78,7 @@ class TestPost:
     def test_post_was_edited_is_false_for_a_create_then_block_append(self):
         """Creating a long post is a page write followed by a block append, and
         the append bumps last_edited_time. Without a threshold every post over
-        1900 characters is born showing `edited` (spec-deltas D10)."""
+        1900 characters is born showing `edited`."""
         post = a_post(created_at=NOW, edited_at=NOW + timedelta(milliseconds=800))
         assert not post.was_edited
 

@@ -1,8 +1,7 @@
-"""Architecture tests — enforce 02-architecture.md §Layers by walking the AST.
+"""Architecture tests — enforce the layering rule by walking the AST.
 
-Written in Phase 1, before there is anything to violate. They pass trivially today
-and start earning their keep in Phase 5, which is the point: the cost of adding
-them later is a refactor, the cost of adding them now is nothing.
+Dependencies point inward only. Enforcing that here rather than in review means
+the cost of a violation is a failing build rather than a later refactor.
 """
 
 import ast
@@ -53,7 +52,7 @@ def test_application_does_not_import_adapters_or_interface():
 
 
 def test_domain_does_not_import_a_framework_or_http_client():
-    """phase-2 acceptance: the domain is pure Python."""
+    """The domain is pure Python: no framework, no transport."""
     assert not offending_imports("domain", ("httpx", "fastapi", "pydantic", "respx"))
 
 

@@ -1,5 +1,5 @@
-"""The spoiler rule. This test list is the specification; each line is a
-decision from 01-ux-spec.md."""
+"""The spoiler rule. This test list is the specification: each name states a
+rule, and together they define when a post is blurred."""
 
 from app.domain.entities import Post
 from app.domain.policies import ChapterFirstSpoilerPolicy, SpoilerPolicy

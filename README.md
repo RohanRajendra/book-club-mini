@@ -1,14 +1,17 @@
 # book-club-mini
 
-A two-person book club forum. Post progress, thoughts and questions as you read;
-reply to each other; anything ahead of your reading position is blurred until
-you choose to see it. Notion is the database.
+A self-hosted reading forum for two people working through the same book.
 
-Each member runs their own copy on their own machine, both pointed at the same
-Notion workspace. There is no shared server and nothing is deployed.
+Members record where they are, post progress notes, thoughts and questions as
+they read, and reply to one another. Any post anchored ahead of a reader's own
+position is blurred for that reader until they choose to reveal it. Notion
+provides the database.
+
+Each member runs the full stack on their own machine. There is no shared server
+and nothing is deployed.
 
 ```text
-┌ Piranesi ─────────────────────────────── Rohan ─ View as [Rohan ▾] ┐
+┌ Piranesi ─────────────────────────────── Ada ─ View as [Ada ▾] ────┐
 │ Susanna Clarke        [Books ▾] [Edit book] [Refresh]              │
 │                                                                    │
 │      Ch 4                        Ch 12 · p.204                     │
@@ -19,112 +22,122 @@ Notion workspace. There is no shared server and nothing is deployed.
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-## Setup
+## Features
 
-**First machine.** Do the Notion side once — see
-[docs/notion-setup.md](docs/notion-setup.md) — then:
+- **Position-aware blurring.** Posts ahead of your reading position are blurred,
+  with author, position and timestamp left visible.
+- **A shared progress indicator.** One marker per member, calibrated to the
+  book's length when known and inferred from activity when not.
+- **Four post types.** Progress updates, thoughts, questions, and one level of
+  replies.
+- **Long-form posts.** Bodies beyond the storage layer's field limit are stored
+  intact and loaded on demand.
+- **A multi-book library** with one book current at a time.
+
+## Requirements
+
+- Python 3.11 or later
+- Node.js 20 or later
+- A Notion workspace with two internal integrations
+
+## Getting started
 
 ```bash
+git clone <repository-url>
+cd book-club-mini
 ./setup.sh
 ./dev.sh
 ```
 
-**Second machine.** Clone, run `./setup.sh`, and give it: your own integration
-token, the two database IDs, your name, and the roster. Then `./dev.sh`.
+Then open <http://localhost:5173>.
 
-Open <http://localhost:5173>.
+`setup.sh` checks the toolchain, installs dependencies, prompts for
+configuration, and validates the Notion workspace before reporting success.
 
-If anything is wrong with the Notion side, this tells you exactly what:
+The Notion side must exist first. [docs/notion-setup.md](docs/notion-setup.md)
+covers it in about fifteen minutes; [docs/installation.md](docs/installation.md)
+covers both installations in detail, including the second member's machine.
 
-```bash
-cd backend && .venv/bin/python scripts/verify_notion.py
+## Documentation
+
+| Document | Purpose |
+| --- | --- |
+| [Overview](docs/overview.md) | The project, its data domain, and where it can grow |
+| [Installation](docs/installation.md) | Both installations, configuration, troubleshooting |
+| [Notion setup](docs/notion-setup.md) | Workspace, databases, environment files |
+| [Architecture](docs/architecture.md) | A guided tour of the codebase |
+| [Domain model](docs/domain-model.md) | The domain, specified independently of any technology |
+| [Storage backends](docs/storage-backends.md) | Replacing Notion with another database |
+| [Decisions](docs/decisions.md) | One entry per pattern, and what would justify removing it |
+
+## Architecture
+
+```text
+backend/app/
+├── domain/          entities, value objects, policies, services — no I/O
+├── ports/           repository and unit-of-work abstractions
+├── application/     use cases, feed assembly, caching
+├── adapters/
+│   ├── memory/      in-memory implementation, used by tests
+│   └── notion/      HTTP client, mappers, repositories, unit of work
+├── interface/       FastAPI routers, DTOs, error mapping
+└── composition.py   the dependency-injection container
 ```
 
-## Tests
+Dependencies point inward only, enforced by a test over the import graph rather
+than by review. Persistence sits behind three abstractions declared next to the
+domain, and one contract suite runs against every implementation — which is the
+concrete meaning of being able to change database: write one adapter package,
+point the container at it, and run that suite.
+
+The frontend keeps all state, derivation and formatting in hooks and pure
+functions; components are presentational and untested by design.
+
+## Testing
 
 ```bash
 cd backend
-.venv/bin/python -m pytest                                   # everything
-.venv/bin/python -m pytest tests/unit -q                     # the fast loop
-.venv/bin/python -m pytest --cov=app --cov-branch
-.venv/bin/python scripts/check_coverage.py                   # per-package gates
+.venv/bin/python -m pytest                        # full suite
+.venv/bin/python -m pytest tests/unit -q          # fast loop
+.venv/bin/python scripts/check_coverage.py        # per-package thresholds
 
 cd ../frontend
 npm test
 npm run coverage
 ```
 
-Coverage floors: 100% line **and branch** on `app/domain` and `app/application`,
-≥90% on `app/adapters` and `app/interface`, ≥90% on frontend hooks and lib.
-React components are not tested — see
-[docs/decisions.md](docs/decisions.md#deliberately-not-added).
+No test requires network access. Coverage floors are 100% line and branch on
+`domain/` and `application/`, and 90% on `adapters/` and `interface/`.
 
-## Five things to be straight about
+## Limitations
 
-**There is no authentication.** Each installation declares who it is in `.env`
-and the server believes it. The ownership checks on edit and delete prevent
-accidents, not attacks. That is fine between two people running on their own
-machines. It would not survive being put on the internet, and putting it there
-is a redesign, not a deployment.
+**There is no authentication.** Each installation declares its member name in
+configuration and the backend accepts it. Ownership checks on edit and delete
+prevent accidents, not attacks. This suits two people running on their own
+machines; exposing the application to a network is a redesign rather than a
+deployment.
 
-**Blur is not secrecy.** Blurred post text is sent to the browser and is readable
-in devtools. It is a courtesy against accidental spoilers, nothing more.
+**Blurring is presentational.** Blurred text is delivered to the browser and is
+readable in developer tools. It guards against accidental spoilers, not against
+a determined reader.
 
-**The Notion workspace must stay solo.** Do not invite the second member to
-Notion. Adding a member to a free workspace triggers a 1000-block team trial
-limit, and the integrations are the only writers.
+**Rollback is compensating, not atomic.** Notion provides no transactions, so a
+failed multi-step write is undone by replaying inverse operations. A
+compensation can itself fail, and a concurrent reader may observe an
+intermediate state. Failed compensations are logged with enough detail for
+manual repair.
 
-**Rollback is compensating, not atomic.** Notion has no transactions.
-`NotionUnitOfWork` undoes a failed multi-step write by replaying inverse
-operations. A compensation can itself fail, and a concurrent reader can observe
-an intermediate state. Failed compensations are logged at ERROR with enough
-detail to repair by hand.
+**Request throughput is bounded.** Notion permits roughly three requests per
+second per integration. The application is built to that budget: one query per
+feed load, a short read-through cache, and no polling. Any change that fetches
+per-post data in a loop will exceed it first.
 
-**The rate limit is the real ceiling.** Roughly 3 requests/second per
-integration. The app is built around it: one data-source query per feed load
-plus one book read, a 20-second cache, no polling. Any future feature that
-fetches per-post data in a loop breaks this first.
+**The Notion workspace must remain single-member.** Inviting a second person to
+a free workspace starts a team trial with a block limit. The second reader needs
+no Notion access; the integrations are the only writers.
 
-## Known limits
+Further limits are listed in [docs/overview.md](docs/overview.md#known-limits).
 
-Written down rather than fixed:
+## Licence
 
-- A feed caps at 500 posts per book. Past that, older posts stop appearing. The
-  fix is date-bounded queries, not a bigger cap.
-- Editing a post does not update the positions copied onto its replies. A reply's
-  position is a snapshot of where the conversation started.
-- No full-text search. Notion's search API is workspace-wide and filters poorly;
-  search in Notion directly.
-- Positions assume both members use the same chapter numbering. Page numbers may
-  differ between editions, which is why the spoiler rule leans on chapter and
-  only uses the page as a tiebreaker within one.
-- Only the first data source of each database is used.
-- The two installations do not know about each other. No notifications and no
-  real-time updates; you find out she posted by refreshing.
-- Reader colours come from position in `MEMBERS`, so both machines must list the
-  roster in the same order.
-
-## How it is put together
-
-```text
-backend/app/
-├── domain/        entities, values, policies, services. Zero I/O
-├── ports/         BookRepository, PostRepository, UnitOfWork
-├── application/   use cases, feed assembly, caching decorator
-├── adapters/
-│   ├── memory/    in-memory implementations, used by tests
-│   └── notion/    HTTP client, mappers, repositories, compensating UoW
-├── interface/     FastAPI routers, DTOs, error map
-└── composition.py the DI container
-```
-
-Dependencies point inward only, and an architecture test enforces it rather than
-relying on discipline. The same contract suite runs against both the in-memory
-and the Notion adapter, which is the concrete meaning of "we could swap the
-database": implement the three ports in a new package, point the container at
-it, and run that suite.
-
-[docs/decisions.md](docs/decisions.md) has one entry per pattern — what it is,
-the requirement that justified it, and what would have to change for it to go.
-[docs/spec-deltas.md](docs/spec-deltas.md) records every place this build
-diverges from `prompt-library/`, which is left untouched as the reference.
+See [LICENSE](LICENSE).

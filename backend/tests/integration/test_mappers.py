@@ -1,8 +1,8 @@
 """Mapper tests against **real** recorded Notion responses.
 
-phase-4 §4.4: "Test these against the real fixtures from Phase 1.6, not
-hand-written payloads." Hand-written approximations are how a suite goes green
-against an API that would reject it, so these skip rather than substitute one.
+These run against recorded responses rather than hand-written payloads.
+Hand-written approximations are how a suite goes green against an API that would
+reject it, so these skip rather than substitute one.
 
 See tests/fixtures/notion/README.md for how to capture them. The mappers are
 not untested in the meantime: the contract suite round-trips every entity

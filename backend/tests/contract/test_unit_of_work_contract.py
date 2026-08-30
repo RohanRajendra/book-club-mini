@@ -1,12 +1,12 @@
 """The contract every port implementation must satisfy.
 
 This is the Liskov check for the whole port design, and it is what makes the
-in-memory adapter trustworthy as a test double for every later test. Phase 4
-adds a Notion subclass and **must not modify this suite**: if a contract test
-cannot pass, either the adapter is wrong or the port is.
+in-memory adapter trustworthy as a test double for every other test.
 
-A future SQLite adapter is correct when this suite passes against it. That is
-the concrete meaning of the swappability goal.
+Each implementation subclasses this and supplies a fixture. **Subclasses must
+not modify the contract**: if a test cannot pass, either the adapter is wrong or
+the port is. A new storage adapter is correct when this suite passes against it,
+which is the concrete meaning of the swappability goal.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from tests.builders import ADA, GRACE, long_body, make_book, make_post, make_rep
 
 NO_TRANSACTIONS = (
     "Notion has no transactions; rollback is compensating and is covered by "
-    "the compensation tests in Phase 4."
+    "the compensation tests in tests/integration/."
 )
 
 
@@ -83,7 +83,7 @@ class UnitOfWorkContract:
             assert (await uow.posts.get(stored.id)).body_preview == stored.body_preview
 
     async def test_add_returns_a_post_with_an_id_and_created_at(self, uow):
-        """An unsaved post carries neither (docs/spec-deltas.md D9)."""
+        """An unsaved post carries neither."""
         async with uow:
             stored = await uow.posts.add(make_post(id=None, created_at=None))
             assert stored.id is not None
@@ -256,7 +256,7 @@ class UnitOfWorkContract:
             assert await second.posts.get(stored.id) is not None
 
     async def test_on_commit_callbacks_run_after_a_successful_commit(self, uow):
-        """The single invalidation hook (docs/spec-deltas.md D7)."""
+        """The single invalidation hook."""
         fired = []
         uow.on_commit.append(lambda: fired.append(True))
         async with uow:

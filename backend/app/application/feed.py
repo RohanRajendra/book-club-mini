@@ -8,7 +8,7 @@ from app.domain.policies import SpoilerPolicy
 from app.domain.services import PositionResolver, ScaleCalculator
 from app.domain.values import MemberName, PostType
 
-#: The chip labels from 01-ux-spec.md §4.
+#: The filter chip labels exposed to the client.
 COUNT_KEYS = {
     PostType.PROGRESS: "progress",
     PostType.THOUGHT: "thought",

@@ -6,10 +6,10 @@ returns. The claim about payload shape lives in
 `tests/integration/test_mappers.py`, which runs against real recorded responses
 and skips until they are captured.
 
-The distinction matters because the trap phase-4 warns about is a suite that
-goes green against an API that would reject it. A fallback branch cannot have
-that problem: it fires precisely when the payload is *not* what Notion normally
-sends, because the owner hand-edited the row.
+The distinction matters because the trap these fixtures guard against is a suite
+that goes green against an API that would reject it. A fallback branch cannot
+have that problem: it fires precisely when the payload is *not* what Notion
+normally sends, because someone hand-edited the row.
 """
 
 from __future__ import annotations

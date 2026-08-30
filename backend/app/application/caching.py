@@ -37,7 +37,7 @@ class CachingFeedQuery:
     async def execute(self, query: FeedQuery) -> Result[Feed]:
         # The viewer is part of the key because spoiler flags are computed per
         # viewer; without it the View as control serves one member's blur state
-        # to the other (docs/spec-deltas.md D4).
+        # to the other.
         key = (query.book_id, query.viewer, query.post_type)
         now = self._clock()
 

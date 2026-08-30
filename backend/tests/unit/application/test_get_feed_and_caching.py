@@ -57,7 +57,7 @@ class TestGetFeed:
 
     async def test_a_feed_load_makes_exactly_one_post_query(self, get_feed, seeded):
         """One data-source query per feed load and no per-post requests — the
-        property the rate limit makes load-bearing (spec-deltas D2)."""
+        property the rate limit makes load-bearing."""
         seeded.posts.calls.clear()
         await get_feed.execute(FeedQuery(book_id=BOOK, viewer=ADA))
 
@@ -164,8 +164,8 @@ class TestCachingFeedQuery:
     async def test_invalidation_is_wired_to_commit_not_to_each_write_site(
         self, cached, counting, seeded
     ):
-        """The single hook from spec-deltas D7: the container registers this
-        on the unit of work and nothing else has to remember to call it."""
+        """The single invalidation hook: the container registers this on the unit
+        of work, so nothing else has to remember to call it."""
         seeded.on_commit.append(cached.invalidate)
         query = FeedQuery(book_id=BOOK, viewer=ADA)
 

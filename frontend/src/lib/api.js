@@ -2,8 +2,8 @@
  * The API client.
  *
  * Every failure becomes an ApiError carrying one human sentence. The backend
- * already sends copy matching 01-ux-spec.md, so the message is displayed
- * verbatim rather than replaced with our own.
+ * already sends display-ready copy, so the message is shown verbatim rather
+ * than replaced with our own.
  */
 
 export class ApiError extends Error {

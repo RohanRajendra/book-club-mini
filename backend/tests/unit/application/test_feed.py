@@ -102,7 +102,7 @@ class TestFiltering:
 
     def test_counts_cover_every_chip_regardless_of_the_active_filter(self):
         """The client filters locally, so it needs all four counts at once
-        (docs/spec-deltas.md D3)."""
+."""
         feed = assembler().assemble(
             make_book(), self.make_posts(), ADA, PostType.QUESTION
         )

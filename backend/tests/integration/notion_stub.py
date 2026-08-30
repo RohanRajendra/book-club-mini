@@ -1,12 +1,12 @@
 """A small stateful Notion, backed by respx.
 
 Pages in a dict, queries filtering over them, trashed flags respected. It is
-what lets the Phase 3 contract suite run against the Notion adapter without the
+what lets the shared contract suite run against the Notion adapter without the
 network.
 
-This proves conformance to *our model* of Notion, not to Notion. The
-scratch-script check in phase-4 §4.7, against the real workspace, is what closes
-that gap — it is not optional.
+This proves conformance to *our model* of Notion, not to Notion itself. Running
+the adapter against a real workspace is what closes that gap, and it is not
+optional before trusting a change to this layer.
 """
 
 from __future__ import annotations

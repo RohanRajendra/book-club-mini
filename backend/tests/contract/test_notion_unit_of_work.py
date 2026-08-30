@@ -1,4 +1,4 @@
-"""The Phase 3 contract suite, run against the Notion adapter.
+"""The shared contract suite, run against the Notion adapter.
 
 The contract itself is not modified. If a contract test cannot pass, either the
 adapter is wrong or the port is — a fourth fake_only marker means stopping to

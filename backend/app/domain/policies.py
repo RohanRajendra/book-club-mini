@@ -2,7 +2,7 @@
 
 It is the single most likely thing in this app to change, and isolating it means
 a percent-based variant is a new class rather than an `if` inside this one
-(02-architecture.md §Strategy).
+.
 """
 
 from __future__ import annotations

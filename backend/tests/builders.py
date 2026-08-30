@@ -68,7 +68,7 @@ def make_reply(parent: Post, member: MemberName, **overrides) -> Post:
     """Copies the parent's position and sets parent_post_id and type.
 
     The rule lives in one place in the tests, mirroring the use case that
-    enforces it in Phase 5.
+    enforces it.
     """
     return make_post(
         book_id=parent.book_id,
