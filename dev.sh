@@ -37,4 +37,7 @@ else
   echo "backend :8000   (frontend not installed yet)"
 fi
 
-wait -n
+# Plain `wait`, not `wait -n`: macOS ships bash 3.2, where -n is a syntax error
+# and the script exits immediately having started nothing you can reach.
+# Ctrl-C still stops both, via the trap above.
+wait
