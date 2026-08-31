@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Callable
 
+from app.application.position_rules import chapter_beyond_book
 from app.domain import errors
 from app.domain.entities import Post
 from app.domain.result import Err, Ok, Result
@@ -65,6 +66,16 @@ class EditPost:
                 )
             if post.type is not PostType.PROGRESS and not command.body.strip():
                 return Err(errors.BodyRequired("Write something first."))
+
+            # The book read exists only for this check, and a reply's position
+            # is a snapshot that editing never moves — so a reply does not pay
+            # for it.
+            if not post.is_reply and command.chapter is not None:
+                book = await uow.books.get(post.book_id)
+                if book is None:
+                    return Err(errors.BookNotFound("That book isn't here."))
+                if not book.contains_chapter(command.chapter):
+                    return Err(chapter_beyond_book(book, command.chapter))
 
             preview, has_full_body, full_body = self._splitter.split(command.body)
 

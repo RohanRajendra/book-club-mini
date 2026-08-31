@@ -66,6 +66,16 @@ class PageRequiresChapter(DomainError):
 
 
 @dataclass(frozen=True)
+class ChapterBeyondBook(DomainError):
+    code: ClassVar[str] = "chapter_beyond_book"
+
+
+@dataclass(frozen=True)
+class TotalChaptersBelowPosts(DomainError):
+    code: ClassVar[str] = "total_chapters_below_posts"
+
+
+@dataclass(frozen=True)
 class BodyRequired(DomainError):
     code: ClassVar[str] = "body_required"
 

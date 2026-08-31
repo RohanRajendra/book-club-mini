@@ -123,26 +123,34 @@ class FeedResponse(BaseModel):
         )
 
 
+#: Sanity ceilings, not the business rule. Whether a chapter fits *this* book
+#: needs the book and is decided in the use case; these only stop a value that
+#: could never be a chapter from reaching Notion's number property, which
+#: round-trips through a float and loses precision above 2**53.
+MAX_CHAPTER = 10_000
+MAX_PAGE = 100_000
+
+
 class BookRequest(BaseModel):
     title: str
     author: str | None = None
     status: BookStatus = BookStatus.UPCOMING
-    total_chapters: int | None = Field(default=None, ge=1)
+    total_chapters: int | None = Field(default=None, ge=1, le=MAX_CHAPTER)
 
 
 class CreatePostRequest(BaseModel):
     book_id: str
     type: PostType
     body: str = ""
-    chapter: int | None = Field(default=None, ge=1)
-    page: int | None = Field(default=None, ge=1)
+    chapter: int | None = Field(default=None, ge=1, le=MAX_CHAPTER)
+    page: int | None = Field(default=None, ge=1, le=MAX_PAGE)
     parent_post_id: str | None = None
 
 
 class EditPostRequest(BaseModel):
     body: str = ""
-    chapter: int | None = Field(default=None, ge=1)
-    page: int | None = Field(default=None, ge=1)
+    chapter: int | None = Field(default=None, ge=1, le=MAX_CHAPTER)
+    page: int | None = Field(default=None, ge=1, le=MAX_PAGE)
 
 
 class BodyResponse(BaseModel):

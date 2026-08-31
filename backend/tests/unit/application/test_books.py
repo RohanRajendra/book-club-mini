@@ -8,7 +8,8 @@ from app.adapters.memory import InMemoryUnitOfWork
 from app.application.use_cases.books import AddBook, BookCommand, ListBooks, UpdateBook
 from app.domain import errors
 from app.domain.entities import Book
-from app.domain.values import BookId, BookStatus
+from app.domain.values import BookId, BookStatus, Position
+from tests.builders import ADA, make_post
 
 READING = BookStatus.CURRENTLY_READING
 
@@ -154,3 +155,108 @@ async def test_list_books_orders_alphabetically_within_a_status_group(listing, u
 
 async def test_list_books_on_an_empty_store_returns_an_empty_list(listing):
     assert (await listing.execute()).unwrap() == []
+
+
+class TestLoweringTotalChapters:
+    """The chapter bound is enforced on write, so it has to keep holding.
+
+    Shortening a book is the one edit that can strand posts outside it.
+    """
+
+    @pytest.fixture
+    async def book(self, uow, add):
+        created = (
+            await add.execute(BookCommand(title="Piranesi", total_chapters=45))
+        ).unwrap()
+        async with uow:
+            await uow.posts.add(
+                make_post(id=None, book_id=created.id, member=ADA, position=Position(30))
+            )
+            await uow.commit()
+        return created
+
+    async def test_lowering_below_an_existing_post_is_refused(self, update, book):
+        result = await update.execute(
+            book.id, BookCommand(title="Piranesi", total_chapters=20)
+        )
+        assert isinstance(result.unwrap_err(), errors.TotalChaptersBelowPosts)
+
+    async def test_the_message_names_the_count_and_the_furthest_chapter(
+        self, update, book
+    ):
+        message = (
+            await update.execute(
+                book.id, BookCommand(title="Piranesi", total_chapters=20)
+            )
+        ).unwrap_err().message
+        assert "1 post is" in message
+        assert "30" in message
+
+    async def test_lowering_to_exactly_the_furthest_post_is_allowed(self, update, book):
+        result = await update.execute(
+            book.id, BookCommand(title="Piranesi", total_chapters=30)
+        )
+        assert result.unwrap().total_chapters == 30
+
+    async def test_lowering_above_every_post_is_allowed(self, update, book):
+        result = await update.execute(
+            book.id, BookCommand(title="Piranesi", total_chapters=40)
+        )
+        assert result.unwrap().total_chapters == 40
+
+    async def test_raising_the_total_is_always_allowed(self, update, book):
+        result = await update.execute(
+            book.id, BookCommand(title="Piranesi", total_chapters=90)
+        )
+        assert result.unwrap().total_chapters == 90
+
+    async def test_the_book_is_unchanged_when_the_edit_is_refused(
+        self, update, book, uow
+    ):
+        await update.execute(book.id, BookCommand(title="Piranesi", total_chapters=20))
+        async with uow:
+            assert (await uow.books.get(book.id)).total_chapters == 45
+
+    async def test_posts_without_a_position_do_not_block_the_edit(self, uow, add, update):
+        created = (
+            await add.execute(BookCommand(title="Piranesi", total_chapters=45))
+        ).unwrap()
+        async with uow:
+            await uow.posts.add(
+                make_post(id=None, book_id=created.id, member=ADA, position=None)
+            )
+            await uow.commit()
+
+        result = await update.execute(
+            created.id, BookCommand(title="Piranesi", total_chapters=2)
+        )
+        assert result.unwrap().total_chapters == 2
+
+    async def test_a_status_only_edit_does_not_query_the_posts(self, uow, book, update):
+        """The scan costs a full Notion query. Changing status is by far the
+        most common edit and must not pay for a rule it cannot break."""
+        uow.posts.calls.clear()
+        await update.execute(
+            book.id, BookCommand(title="Piranesi", status=READING, total_chapters=45)
+        )
+        assert [name for name, _ in uow.posts.calls] == []
+
+    async def test_clearing_the_total_is_allowed_and_does_not_query_the_posts(
+        self, uow, book, update
+    ):
+        """A book that states no length cannot exclude anything, so clearing
+        the total can never strand a post and must not pay for a scan."""
+        uow.posts.calls.clear()
+        result = await update.execute(
+            book.id, BookCommand(title="Piranesi", total_chapters=None)
+        )
+        assert result.unwrap().total_chapters is None
+        assert [name for name, _ in uow.posts.calls] == []
+
+    async def test_lowering_does_query_the_posts(self, uow, book, update):
+        """The negative test above is worthless if the call never happens."""
+        uow.posts.calls.clear()
+        await update.execute(
+            book.id, BookCommand(title="Piranesi", total_chapters=20)
+        )
+        assert [name for name, _ in uow.posts.calls] == ["list_for_book"]

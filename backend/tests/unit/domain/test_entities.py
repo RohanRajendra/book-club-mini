@@ -50,6 +50,41 @@ class TestBook:
         assert Book(title="Piranesi").id is None
 
 
+class TestBookContainsChapter:
+    """The bound that stops a post landing outside the book it belongs to.
+
+    Boundaries in both directions, because an off-by-one here either rejects
+    the last chapter of every book or admits one past the end.
+    """
+
+    def book(self, total: int | None = 45) -> Book:
+        return Book(id=BookId("b1"), title="Piranesi", total_chapters=total)
+
+    def test_a_chapter_inside_the_book_fits(self):
+        assert self.book().contains_chapter(44) is True
+
+    def test_the_last_chapter_fits(self):
+        assert self.book().contains_chapter(45) is True
+
+    def test_one_past_the_end_does_not_fit(self):
+        assert self.book().contains_chapter(46) is False
+
+    def test_far_past_the_end_does_not_fit(self):
+        assert self.book().contains_chapter(99) is False
+
+    def test_the_first_chapter_fits(self):
+        assert self.book().contains_chapter(1) is True
+
+    def test_a_book_of_one_chapter_admits_only_that_chapter(self):
+        assert self.book(total=1).contains_chapter(1) is True
+        assert self.book(total=1).contains_chapter(2) is False
+
+    def test_a_book_that_states_no_length_admits_anything(self):
+        """Demanding a chapter count before the app is usable was rejected, so
+        an unknown length cannot be allowed to exclude anything."""
+        assert self.book(total=None).contains_chapter(99_999) is True
+
+
 class TestPost:
     def test_post_is_reply_when_parent_post_id_present(self):
         assert a_post(parent_post_id=PostId("parent"), type=PostType.REPLY).is_reply

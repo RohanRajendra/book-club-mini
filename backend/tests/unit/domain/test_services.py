@@ -186,7 +186,11 @@ class TestScaleCalculator:
 
     def test_scale_never_falls_below_the_highest_observed_chapter(self):
         """The trap: chapter 400 in a book whose Total Chapters says 30 must
-        still fit on the track rather than drawing a tick off the end."""
+        still fit on the track rather than drawing a tick off the end.
+
+        The write paths now refuse to create that post, so this defends against
+        a row edited directly in Notion — a route the docs tell members they
+        may use. Rendering is where an overshoot has to be survivable."""
         assert self.scale(total_chapters=30, observed_max=400)[0] >= 400
 
     def test_scale_extends_past_a_stated_total_without_becoming_estimated(self):

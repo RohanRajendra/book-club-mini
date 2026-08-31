@@ -1,0 +1,169 @@
+# Known issues
+
+Defects found in an audit of the backend on 2026-08-31, ranked by the harm they
+can do. Each entry names the failing behaviour, where it lives, and roughly what
+fixing it costs.
+
+Cost is code change only:
+
+| | Meaning |
+| --- | --- |
+| **S** | One or two files, under about forty lines |
+| **M** | Three to six files plus new tests |
+| **L** | Touches a port or both adapters; needs a live datastore round-trip to verify |
+
+Fixed entries stay on the list with the commit that closed them, so the list
+doubles as a record of what has been checked.
+
+---
+
+## Tier 1 — silently wrong, or defeats the core feature
+
+### 1. Clearing a field silently fails against Notion, and the contract suite says it works — **L**
+
+`BookMapper.to_properties` and `PostMapper.to_properties` omit a property when
+its value is `None`. A Notion `PATCH` merges rather than replaces, so the old
+value survives. The in-memory adapter replaces the whole record, so it *does*
+clear.
+
+Removing a page number returns `200` with the page unchanged; `Total Chapters`
+cannot be cleared through the API at all. The contract suite contains no
+clearing test, so the project's central correctness claim — that the in-memory
+adapter is a trustworthy stand-in — certifies behaviour production does not
+have. Fixing it means sending explicit nulls and adding clearing to the
+contract, which will fail against Notion until the mapper is corrected.
+
+### 2. A chapter was never bounded by the book — **fixed**
+
+A book stating 45 chapters accepted a post at chapter 99. Worse than a bad
+number: position resolution placed the member at 99, nothing was ahead of them,
+and blurring switched off for the whole book.
+
+Closed by enforcing `Book.contains_chapter` on create and edit, refusing to
+shorten a book below its posts, and adding sanity ceilings at the HTTP
+boundary.
+
+### 3. `GET /api/posts/{id}/body` has no viewer and no spoiler check — **S**
+
+`GetPostBody.execute` takes only a `PostId`. The full body of a post that is
+blurred for you is one request away. The documented limitation covers the
+1,900-character preview travelling to the browser; it does not cover handing
+over the whole 200,000-character body on request.
+
+### 4. Blank path parameters return 500 instead of 400 — **S**
+
+The routers build `BookId(...)` and `PostId(...)` straight from user input, and
+that constructor *raises* on a whitespace string. `GET /api/books/%20/feed`,
+`PATCH /api/books/%20`, `DELETE /api/posts/%20` and `{"book_id": ""}` are all
+unhandled crashes. Entity guards documented as last-line assertions against a
+programming error are reachable from the network.
+
+---
+
+## Tier 2 — wrong output, recoverable
+
+### 5. A 200,000-character post can be previewed as one character — **S**
+
+`BodySplitter` takes the *last* space in the first 1,900 characters as the cut
+point. A body of `"I "` followed by five thousand non-spaces previews as `I`.
+Any space-sparse text hits this — a long URL after a one-word lead-in, base64,
+CJK. Newlines are not treated as word boundaries.
+
+### 6. `type=Progress` with a `parent_post_id` bypasses "body required" — **S**
+
+`CreatePost` checks the requested type, but the effective type is overwritten to
+`Reply` afterwards, so the check is skipped and an empty reply is stored.
+`EditPost` keys off the stored type and does not have the hole, so the two use
+cases disagree about one rule.
+
+### 7. Deleted posts remain fully operable — **M**
+
+`Post` carries no archived state and `PostRepository.get` is contractually
+required to return archived posts. Editing a deleted post returns `200`;
+deleting one twice returns `204` twice; its body is still fetchable.
+
+### 8. An in-flight read repopulates the cache with pre-write data — **S**
+
+`CachingFeedQuery` samples the clock before its `await` and stores after it. A
+read that began before a write lands after the invalidation and pins stale data
+for the full twenty seconds — exactly the failure the `on_commit` hook was built
+to prevent.
+
+### 9. Position resolution picks the wrong post of a same-second tie — **S**
+
+`>=` keeps the last post seen, and `list_for_book` is contractually newest-first,
+so a tie resolves to the older post. Notion timestamps have second resolution,
+so correcting a mistyped chapter within the same second keeps the mistake — the
+precise workflow the resolver was written to protect.
+
+### 10. Pagination cap crossed with the delete cascade — **M**
+
+`list_for_book` truncates at 500 posts and `DeletePost` finds replies by
+scanning it. Replies past the cap survive their parent, then vanish from the
+feed entirely while still consuming the query budget.
+
+---
+
+## Tier 3 — latent, narrow, or needs an out-of-band trigger
+
+| # | Issue | Cost |
+| --- | --- | --- |
+| 11 | An oversize title or author passes every layer, Notion rejects it, and the member is told "Can't reach Notion right now" — a 502 for a typing mistake. No `max_length` on `BookRequest`. | S |
+| 12 | Length limits count code points; Notion counts UTF-16. An emoji-heavy 1,900-character preview is 3,800 units and breaches Notion's cap. | M |
+| 13 | `author` is never stripped, only `title` is. A whitespace author is stored, displays blank-but-present, and cannot be removed (see #1). | S |
+| 14 | Posts whose book relation is empty are given the fabricated id `BookId("orphan")` — invisible forever, a latent collision, and a hole in the guarantee that identifiers never silently substitute. | S |
+| 15 | A member name read from Notion is never checked against the roster and compares by exact string. Roster `Ada` against Notion `ada` is two people, and your own posts get blurred back at you. | S |
+| 16 | `?type=Reply` is an accepted filter that always returns an empty feed, with no `reply` count to explain why. | S |
+| 17 | A naive `datetime` from any source crashes the whole feed with a `TypeError` during sorting. `created_at=None` is permitted by the entity and does the same. | S |
+| 18 | `edited_at` earlier than `created_at` — clock skew, or a duplicated Notion page — makes `was_edited` permanently false. | S |
+| 19 | Two concurrent "set currently reading" operations both read before either writes, leaving two current books, never detected or repaired. | M |
+| 20 | `EditPost` is an unguarded read-modify-write. Last write wins silently, and a failed second edit's compensation restores state from before the first, undoing a committed change. | L |
+| 21 | A reply created between the delete cascade's scan and its archive survives the parent and becomes permanently invisible. | M |
+| 22 | A reply inherits its parent's position, so a reply written at chapter 40 under a chapter-2 thought is never blurred. | M |
+| 23 | The feed cache is per-process and per-installation. Running more than one worker, or the second member's machine, never invalidates it. | M |
+| 24 | Sorting books raises on any status outside the ordering list — a 500 on `GET /api/books` the day a fifth status is added. | S |
+| 25 | A use case that writes and then returns `Err` does not roll back; only a raised exception does. No current path does it, but one added guard clause would. | S |
+
+---
+
+## Test-suite weaknesses
+
+Coverage is high — 100% line and branch on `domain/` and `application/` — and
+that is exactly how issue #2 survived. Every test was written by reading an `if`
+and covering its branches, a procedure that terminates green and can never
+surface a rule nobody wrote. The suite is a regression harness for the
+implementation, not a specification of the product.
+
+- **No cross-entity invariant is tested anywhere.** Every validation is
+  intra-object or single-lookup. Issue #2 was one instance of a missing class.
+- **Boundary tests exist only at the low end.** Zero, negative and empty are
+  covered diligently; nothing above a limit is ever sent.
+- **One non-ASCII value in the whole suite**, and the assertion on the next line
+  slices it out of the comparison.
+- **No concurrency tests.** The token-bucket burst test is a sequential loop.
+- **Every use-case test injects one shared unit of work**, never a real factory,
+  so the per-call shape production uses is untested.
+- **Vacuous and change-detector assertions**: `assert "body" not in post` on a
+  model with no `body` field; `pytest.raises(Exception)` for frozen-ness; a
+  constant asserted equal to itself.
+- **Four user-facing error strings are duplicated verbatim** across backend and
+  frontend with no shared source and no test comparing them. Two more were added
+  and are now shared through `application/position_rules.py` and
+  `lib/positionRules.js`, which at least name each other.
+
+The convention adopted with issue #2, and worth applying to each fix that
+follows: **after adding a guard, delete it and confirm the suite fails.** Eight
+mutations were tried against the issue #2 fix; the one that survived exposed an
+untested path, which is now covered.
+
+---
+
+## Coverage of this audit
+
+`domain/`, `application/`, `interface/`, the Notion mappers and repositories,
+and the whole test suite were swept. A dedicated sweep of the HTTP client, the
+compensating unit of work, `rich_text`, config loading, composition and the
+shell scripts **did not complete** — the machine slept mid-run, twice. Rate
+limiting, retry behaviour, the compensation stack and the setup scripts are
+therefore under-represented here, and this list should be expected to grow when
+that sweep is finished.

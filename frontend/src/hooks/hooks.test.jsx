@@ -751,3 +751,110 @@ describe('usePostEditor', () => {
     expect(result.current.fields.body).toBe('Revised.')
   })
 })
+
+describe('useComposer chapter bounds', () => {
+  const BOOK = { id: 'b1', title: 'Piranesi', total_chapters: 45 }
+
+  const composerFor = (book = BOOK) =>
+    renderHook(() => useComposer({ book, onSubmit: vi.fn() }))
+
+  it('refuses a chapter past the end of the book', async () => {
+    const { result } = composerFor()
+    act(() => result.current.chooseType('Progress'))
+    act(() => result.current.setField('chapter', '99'))
+
+    await act(async () => {
+      await result.current.submit()
+    })
+    expect(result.current.error).toBe(
+      'Piranesi has 45 chapters, so there is no chapter 99.',
+    )
+  })
+
+  it('accepts the last chapter', () => {
+    const { result } = composerFor()
+    act(() => result.current.chooseType('Progress'))
+    act(() => result.current.setField('chapter', '45'))
+    expect(result.current.isValid).toBe(true)
+  })
+
+  it('refuses one past the last chapter', () => {
+    const { result } = composerFor()
+    act(() => result.current.chooseType('Progress'))
+    act(() => result.current.setField('chapter', '46'))
+    expect(result.current.isValid).toBe(false)
+  })
+
+  it('does not submit a refused chapter', async () => {
+    const onSubmit = vi.fn()
+    const { result } = renderHook(() => useComposer({ book: BOOK, onSubmit }))
+    act(() => result.current.chooseType('Progress'))
+    act(() => result.current.setField('chapter', '99'))
+
+    await act(async () => {
+      await result.current.submit()
+    })
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('accepts any chapter when the book states no length', () => {
+    const { result } = composerFor({ title: 'X', total_chapters: null })
+    act(() => result.current.chooseType('Progress'))
+    act(() => result.current.setField('chapter', '9000'))
+    expect(result.current.isValid).toBe(true)
+  })
+
+  // Number('abc') is NaN, which serialises to null and reaches the server as a
+  // missing chapter with a misleading error.
+  it('refuses a chapter that is not a number', () => {
+    const { result } = composerFor()
+    act(() => result.current.chooseType('Progress'))
+    act(() => result.current.setField('chapter', 'abc'))
+    expect(result.current.isValid).toBe(false)
+  })
+
+  it('bounds a thought as well as a progress update', () => {
+    const { result } = composerFor()
+    act(() => result.current.chooseType('Thought'))
+    act(() => result.current.setField('body', 'A thought.'))
+    act(() => result.current.setField('chapter', '99'))
+    expect(result.current.isValid).toBe(false)
+  })
+})
+
+describe('usePostEditor chapter bounds', () => {
+  const BOOK = { id: 'b1', title: 'Piranesi', total_chapters: 45 }
+  const short = post({ body_preview: 'A thought.', has_full_body: false })
+
+  it('will not save a chapter past the end of the book', async () => {
+    const onSave = vi.fn()
+    const { result } = renderHook(() => usePostEditor(short, { book: BOOK, onSave }))
+
+    act(() => result.current.setField('chapter', '99'))
+    expect(result.current.canSave).toBe(false)
+
+    let saved
+    await act(async () => {
+      saved = await result.current.save()
+    })
+
+    expect(saved).toBe(false)
+    expect(onSave).not.toHaveBeenCalled()
+    expect(result.current.error).toBe(
+      'Piranesi has 45 chapters, so there is no chapter 99.',
+    )
+  })
+
+  it('saves the last chapter', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    const { result } = renderHook(() => usePostEditor(short, { book: BOOK, onSave }))
+
+    act(() => result.current.setField('chapter', '45'))
+    await act(async () => {
+      await result.current.save()
+    })
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ chapter: 45 }),
+    )
+  })
+})

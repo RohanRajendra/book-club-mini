@@ -344,3 +344,77 @@ class TestGetPostBody:
     async def test_missing_post_returns_post_not_found(self, get_body):
         result = await get_body.execute(PostId("nope"))
         assert isinstance(result.unwrap_err(), errors.PostNotFound)
+
+
+class TestEditPostChapterBounds:
+    """EditPost was the weaker of the two write paths: it never loaded the
+    book, so it had nothing to bound a chapter against."""
+
+    BOUNDED = BookId("book-bounded")
+
+    @pytest.fixture
+    async def edit(self, uow):
+        async with uow:
+            await uow.books.add(
+                Book(id=self.BOUNDED, title="Piranesi", total_chapters=45)
+            )
+            await uow.commit()
+        return EditPost(uow_factory=lambda: uow)
+
+    @pytest.fixture
+    async def existing(self, uow):
+        async with uow:
+            post = await uow.posts.add(
+                make_post(
+                    id=None,
+                    book_id=self.BOUNDED,
+                    member=ADA,
+                    position=Position(10),
+                    body_preview="Original.",
+                )
+            )
+            await uow.commit()
+        return post
+
+    async def test_moving_a_post_past_the_end_is_refused(self, edit, existing):
+        result = await edit.execute(
+            EditPostCommand(post_id=existing.id, member=ADA, body="Revised.", chapter=99)
+        )
+        assert isinstance(result.unwrap_err(), errors.ChapterBeyondBook)
+
+    async def test_moving_to_the_last_chapter_is_accepted(self, edit, existing):
+        result = await edit.execute(
+            EditPostCommand(post_id=existing.id, member=ADA, body="Revised.", chapter=45)
+        )
+        assert result.unwrap().position == Position(45)
+
+    async def test_the_post_is_unchanged_when_the_chapter_is_refused(
+        self, edit, existing, uow
+    ):
+        await edit.execute(
+            EditPostCommand(post_id=existing.id, member=ADA, body="Revised.", chapter=99)
+        )
+        async with uow:
+            stored = await uow.posts.get(existing.id)
+        assert stored.body_preview == "Original."
+        assert stored.position == Position(10)
+
+    async def test_clearing_the_position_is_still_allowed(self, edit, existing):
+        result = await edit.execute(
+            EditPostCommand(post_id=existing.id, member=ADA, body="Revised.")
+        )
+        assert result.unwrap().position is None
+
+    async def test_a_post_whose_book_has_vanished_reports_it(self, uow):
+        """Previously EditPost never read the book, so it could not notice."""
+        async with uow:
+            post = await uow.posts.add(
+                make_post(id=None, book_id=BookId("gone"), member=ADA)
+            )
+            await uow.commit()
+
+        edit = EditPost(uow_factory=lambda: uow)
+        result = await edit.execute(
+            EditPostCommand(post_id=post.id, member=ADA, body="Revised.", chapter=3)
+        )
+        assert isinstance(result.unwrap_err(), errors.BookNotFound)

@@ -58,6 +58,7 @@ export default function App() {
 
   const composer = useComposer({
     viewerPosition,
+    book: books.book,
     onSubmit: async (values) => {
       const created = await api.createPost({ book_id: books.selectedId, ...values })
       // Optimistic: show it immediately, then reconcile against the server.
@@ -202,6 +203,7 @@ export default function App() {
                 renderEditor={(post) => (
                   <PostEditor
                     post={post}
+                    book={books.book}
                     onCancel={() => setEditing(null)}
                     onSave={(values) => saveEdit(post, values)}
                   />
@@ -231,6 +233,7 @@ export default function App() {
 
               {quickOpen && (
                 <QuickProgress
+                  book={books.book}
                   onCancel={() => setQuickOpen(false)}
                   onSubmit={async (values) => {
                     await api.createPost({

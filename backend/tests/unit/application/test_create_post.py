@@ -202,3 +202,82 @@ class TestReplies:
             await seeded.commit()
         result = await create.execute(command(parent_post_id=parent.id))
         assert result.unwrap().position is None
+
+
+class TestChapterBounds:
+    """A chapter past the end of the book is refused.
+
+    Not cosmetic: PositionResolver would place the member at that chapter, and
+    ChapterFirstSpoilerPolicy would then find nothing ahead of them, so one
+    mistyped progress update switches blurring off for the whole book.
+    """
+
+    BOUNDED = BookId("book-bounded")
+
+    @pytest.fixture
+    async def create(self, uow):
+        async with uow:
+            await uow.books.add(
+                Book(id=self.BOUNDED, title="Piranesi", total_chapters=45)
+            )
+            await uow.books.add(Book(id=BOOK, title="Unbounded"))
+            await uow.commit()
+        return CreatePost(uow_factory=lambda: uow, roster=ROSTER)
+
+    async def bounded(self, create, **overrides):
+        return await create.execute(command(book_id=self.BOUNDED, **overrides))
+
+    @pytest.mark.parametrize(
+        "post_type", [PostType.PROGRESS, PostType.THOUGHT, PostType.QUESTION]
+    )
+    async def test_a_chapter_past_the_end_is_refused(self, create, post_type):
+        result = await self.bounded(create, type=post_type, chapter=99, page=None)
+        assert isinstance(result.unwrap_err(), errors.ChapterBeyondBook)
+
+    async def test_the_message_names_the_book_and_both_numbers(self, create):
+        message = (await self.bounded(create, chapter=99)).unwrap_err().message
+        assert "Piranesi" in message
+        assert "45" in message
+        assert "99" in message
+
+    async def test_the_last_chapter_is_accepted(self, create):
+        result = await self.bounded(create, chapter=45, page=None)
+        assert result.unwrap().position == Position(45)
+
+    async def test_one_past_the_last_chapter_is_refused(self, create):
+        result = await self.bounded(create, chapter=46, page=None)
+        assert isinstance(result.unwrap_err(), errors.ChapterBeyondBook)
+
+    async def test_a_book_that_states_no_length_accepts_any_chapter(self, create):
+        result = await create.execute(command(book_id=BOOK, chapter=9_000, page=None))
+        assert result.unwrap().position == Position(9_000)
+
+    async def test_a_post_without_a_position_is_unaffected(self, create):
+        result = await self.bounded(create, chapter=None, page=None)
+        assert result.unwrap().position is None
+
+    async def test_nothing_is_written_when_the_chapter_is_refused(self, create, uow):
+        """A rejected write must leave no trace, or the count is wrong and the
+        member sees a post they were told was not accepted."""
+        await self.bounded(create, chapter=99)
+        async with uow:
+            assert await uow.posts.list_for_book(self.BOUNDED) == []
+
+    async def test_a_reply_is_exempt_because_it_copies_its_parent(self, create, uow):
+        """A reply's position is its parent's, which was bounded when the
+        parent was written. Re-checking it could only reject a position the
+        replier never chose."""
+        parent = (await self.bounded(create, chapter=45, page=None)).unwrap()
+        async with uow:
+            await uow.commit()
+
+        result = await create.execute(
+            command(
+                book_id=self.BOUNDED,
+                member=GRACE,
+                parent_post_id=parent.id,
+                chapter=99,
+                body="Agreed.",
+            )
+        )
+        assert result.unwrap().position == Position(45)

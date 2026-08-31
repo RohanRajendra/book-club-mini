@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from app.application.position_rules import chapter_beyond_book
 from app.domain import errors
 from app.domain.entities import Post
 from app.domain.result import Err, Ok, Result
@@ -67,8 +68,20 @@ class CreatePost:
 
         uow = self._uow_factory()
         async with uow:
-            if await uow.books.get(command.book_id) is None:
+            book = await uow.books.get(command.book_id)
+            if book is None:
                 return Err(errors.BookNotFound("That book isn't here."))
+
+            # Needs the book, so it cannot join the checks above. A chapter
+            # past the end is not a cosmetic error: PositionResolver would put
+            # the member there, and nothing would be ahead of them, so blurring
+            # would switch off for the whole book.
+            if (
+                not is_reply
+                and command.chapter is not None
+                and not book.contains_chapter(command.chapter)
+            ):
+                return Err(chapter_beyond_book(book, command.chapter))
 
             post_type = command.type
             position: Position | None

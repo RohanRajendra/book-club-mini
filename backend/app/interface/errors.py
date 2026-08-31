@@ -21,6 +21,8 @@ STATUS_BY_CODE: dict[str, int] = {
     errors.ReplyBookMismatch.code: 400,
     errors.ChapterRequiredForProgress.code: 400,
     errors.PageRequiresChapter.code: 400,
+    errors.ChapterBeyondBook.code: 400,
+    errors.TotalChaptersBelowPosts.code: 400,
     errors.BodyRequired.code: 400,
     errors.BodyTooLong.code: 400,
     errors.TitleRequired.code: 400,

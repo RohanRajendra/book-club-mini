@@ -43,6 +43,16 @@ class Book:
                 f"total_chapters must be 1 or greater, got {self.total_chapters}"
             )
 
+    def contains_chapter(self, chapter: int) -> bool:
+        """Whether a chapter number fits inside this book.
+
+        The book is the only thing that knows its own length, so the rule lives
+        here rather than in a service. A book that states no length accepts any
+        chapter — demanding a chapter count before the app is usable was
+        rejected deliberately, and an unknown length cannot exclude anything.
+        """
+        return self.total_chapters is None or chapter <= self.total_chapters
+
 
 @dataclass(frozen=True, slots=True)
 class Post:

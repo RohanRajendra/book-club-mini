@@ -99,7 +99,7 @@ class TestFeed:
     async def test_feed_as_the_other_member_recomputes_the_flags(self, client):
         await client.post(
             "/api/posts",
-            json={"book_id": BOOK.value, "type": "Progress", "chapter": 40},
+            json={"book_id": BOOK.value, "type": "Progress", "chapter": 20},
         )
         as_ada = await client.get(f"/api/books/{BOOK.value}/feed?as=Ada")
         as_grace = await client.get(f"/api/books/{BOOK.value}/feed?as=Grace")
@@ -360,3 +360,91 @@ class TestCaching:
         await client.get(f"/api/books/{BOOK.value}/feed")
 
         assert [call[0] for call in uow.posts.calls] == ["list_for_book"]
+
+
+class TestChapterBoundsOverHttp:
+    """The seeded book states 30 chapters. These are the requests a client can
+    actually send, including the ones a well-behaved UI never would."""
+
+    async def test_a_chapter_past_the_end_is_a_400_naming_the_book(self, client):
+        response = await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Progress", "chapter": 99},
+        )
+        assert response.status_code == 400
+        assert response.json() == {
+            "error": "Piranesi has 30 chapters, so there is no chapter 99."
+        }
+
+    async def test_the_last_chapter_is_accepted(self, client):
+        response = await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Progress", "chapter": 30},
+        )
+        assert response.status_code == 201
+
+    async def test_a_refused_post_does_not_appear_in_the_feed(self, client):
+        await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Progress", "chapter": 99},
+        )
+        feed = await client.get(f"/api/books/{BOOK.value}/feed")
+        assert feed.json()["posts"] == []
+
+    async def test_editing_a_post_past_the_end_is_a_400(self, client):
+        created = await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Progress", "chapter": 10},
+        )
+        response = await client.patch(
+            f"/api/posts/{created.json()['id']}", json={"chapter": 99}
+        )
+        assert response.status_code == 400
+
+    async def test_lowering_a_books_chapter_count_below_a_post_is_a_400(self, client):
+        await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Progress", "chapter": 25},
+        )
+        response = await client.patch(
+            f"/api/books/{BOOK.value}", json={"title": "Piranesi", "total_chapters": 20}
+        )
+        assert response.status_code == 400
+        assert "25" in response.json()["error"]
+
+    @pytest.mark.parametrize("chapter", [0, -1, 10_001, 2**63])
+    async def test_a_chapter_outside_the_sane_range_is_rejected_by_schema(
+        self, client, chapter
+    ):
+        """422 rather than 400: these are not chapter numbers at all, and they
+        must never reach Notion's number property, which round-trips through a
+        float and loses precision above 2**53."""
+        response = await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Progress", "chapter": chapter},
+        )
+        assert response.status_code == 422
+
+    @pytest.mark.parametrize("page", [0, -1, 100_001])
+    async def test_a_page_outside_the_sane_range_is_rejected_by_schema(
+        self, client, page
+    ):
+        response = await client.post(
+            "/api/posts",
+            json={
+                "book_id": BOOK.value,
+                "type": "Progress",
+                "chapter": 5,
+                "page": page,
+            },
+        )
+        assert response.status_code == 422
+
+    @pytest.mark.parametrize("total", [0, -1, 10_001])
+    async def test_a_total_chapter_count_outside_the_sane_range_is_rejected(
+        self, client, total
+    ):
+        response = await client.post(
+            "/api/books", json={"title": "Piranesi", "total_chapters": total}
+        )
+        assert response.status_code == 422

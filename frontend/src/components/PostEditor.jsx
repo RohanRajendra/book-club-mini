@@ -8,8 +8,8 @@ import { escapes } from './QuickProgress'
  * the point of an edit is the text you are changing, and you cannot revise
  * what has scrolled off the screen.
  */
-export function PostEditor({ post, onSave, onCancel }) {
-  const editor = usePostEditor(post, { onSave })
+export function PostEditor({ post, book, onSave, onCancel }) {
+  const editor = usePostEditor(post, { book, onSave })
   const { fields, setField } = editor
 
   return (

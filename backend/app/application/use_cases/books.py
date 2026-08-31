@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Callable
 
+from app.application.position_rules import total_below_posts
 from app.domain import errors
 from app.domain.entities import Book
 from app.domain.result import Err, Ok, Result
@@ -36,6 +37,30 @@ class BookCommand:
 
 def _sort_key(book: Book) -> tuple[int, str]:
     return STATUS_ORDER.index(book.status), book.title.casefold()
+
+
+async def _posts_beyond(
+    uow: UnitOfWork, book_id: BookId, total_chapters: int
+) -> tuple[int, int]:
+    """`(count, highest chapter)` for posts that a new total would exclude."""
+    chapters = [
+        post.position.chapter
+        for post in await uow.posts.list_for_book(book_id)
+        if post.position is not None and post.position.chapter > total_chapters
+    ]
+    return len(chapters), max(chapters, default=0)
+
+
+def _tightens(new_total: int | None, old_total: int | None) -> bool:
+    """Whether a change to `total_chapters` could strand an existing post.
+
+    Guards the scan above, which costs a full post query. Raising the total,
+    clearing it, or leaving it alone can never exclude anything, so a
+    status-only edit — by far the most common — pays nothing.
+    """
+    if new_total is None:
+        return False
+    return old_total is None or new_total < old_total
 
 
 async def _pause_the_current_book(uow: UnitOfWork, keeping: BookId | None) -> None:
@@ -98,6 +123,17 @@ class UpdateBook:
             existing = await uow.books.get(book_id)
             if existing is None:
                 return Err(errors.BookNotFound("That book isn't here."))
+
+            # Shortening a book cannot be allowed to strand posts outside it:
+            # the bound is enforced on write, so it has to hold afterwards too.
+            if _tightens(command.total_chapters, existing.total_chapters):
+                count, highest = await _posts_beyond(
+                    uow, book_id, command.total_chapters
+                )
+                if count:
+                    return Err(
+                        total_below_posts(command.total_chapters, highest, count)
+                    )
 
             if command.status is BookStatus.CURRENTLY_READING:
                 await _pause_the_current_book(uow, keeping=book_id)

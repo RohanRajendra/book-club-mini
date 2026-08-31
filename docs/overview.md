@@ -89,6 +89,13 @@ Chapter dominates the comparison. Page numbers only break ties within a single
 chapter, and only when both are present, because two members may hold different
 editions or one may be listening to an audiobook.
 
+**A chapter must fall inside the book.** Where a book states a chapter count,
+posting or editing past it is refused, and a book cannot be shortened below its
+existing posts. Books with no stated count accept any chapter. This is not
+cosmetic: an out-of-range progress update would place that member past every
+post in the book, so nothing would be ahead of them and blurring would switch
+off entirely.
+
 Blurring is presentational. Author, position and timestamp stay sharp — knowing
 that someone said *something* at chapter 9 is not a spoiler, and hiding the card
 entirely would hide that the group is active. Revealing affects one post and

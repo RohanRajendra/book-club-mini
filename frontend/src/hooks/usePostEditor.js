@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../lib/api'
+import { positionProblem } from '../lib/positionRules'
 
 const asField = (value) => (value != null ? String(value) : '')
 
@@ -10,7 +11,7 @@ const asField = (value) => (value != null ? String(value) : '')
  * cannot open on `body_preview`: saving that would silently truncate the post
  * to its own preview. Save stays disabled until the full body has arrived.
  */
-export function usePostEditor(post, { onSave } = {}) {
+export function usePostEditor(post, { book, onSave } = {}) {
   const [fields, setFields] = useState({
     body: post.body_preview,
     chapter: asField(post.position?.chapter),
@@ -47,7 +48,14 @@ export function usePostEditor(post, { onSave } = {}) {
     })
   }, [])
 
+  const problem = positionProblem(fields, book)
+
   const save = useCallback(async () => {
+    if (problem) {
+      setError(problem)
+      return false
+    }
+
     setSaving(true)
     try {
       await onSave({
@@ -63,7 +71,15 @@ export function usePostEditor(post, { onSave } = {}) {
     } finally {
       setSaving(false)
     }
-  }, [fields, onSave])
+  }, [fields, onSave, problem])
 
-  return { fields, setField, save, loaded, saving, error, canSave: loaded && !saving }
+  return {
+    fields,
+    setField,
+    save,
+    loaded,
+    saving,
+    error,
+    canSave: loaded && !saving && problem === null,
+  }
 }

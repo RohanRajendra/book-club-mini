@@ -80,9 +80,13 @@ class ScaleCalculator:
 
         `is_estimated` tracks whether the book told us its length, not whether
         the number was adjusted. A stated total that a post overshoots is still
-        not an estimate — the overshoot is a data error in Notion, and the
-        spine's job is to stay honest about its source while still containing
-        the post.
+        not an estimate.
+
+        The app now refuses to write a chapter past a book's stated total, and
+        refuses to shorten a book below its posts, so an overshoot can only
+        arrive from a row edited directly in Notion. This stays because that
+        route is documented and supported — the spine's job is to contain the
+        post it is given while staying honest about where its scale came from.
         """
         observed = observed_max or 0
         if total_chapters is not None:

@@ -23,6 +23,8 @@ def test_the_expected_failures_are_all_present():
         "ReplyBookMismatch",
         "ChapterRequiredForProgress",
         "PageRequiresChapter",
+        "ChapterBeyondBook",
+        "TotalChaptersBelowPosts",
         "BodyRequired",
         "BodyTooLong",
         "TitleRequired",

@@ -9,6 +9,7 @@
 | [domain-model.md](domain-model.md) | The domain and architecture, specified independently of any technology |
 | [storage-backends.md](storage-backends.md) | Replacing Notion with another database |
 | [decisions.md](decisions.md) | One entry per architectural pattern, and what would justify removing it |
+| [known-issues.md](known-issues.md) | Audited defects, ranked by harm, with a cost estimate each |
 
 ## Suggested reading order
 

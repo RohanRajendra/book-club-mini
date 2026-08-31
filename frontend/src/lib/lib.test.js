@@ -9,6 +9,7 @@ import { lastProgressAt } from './lastProgressAt'
 import { assignReaderColour, initialOf, readerColourFor } from './readerColour'
 import { MIN_SCALE, spineScale } from './spineScale'
 import { readSetting, writeSetting } from './storage'
+import { positionProblem } from './positionRules'
 import { CLAMP_CHARS, isClampable, needsFetch } from './truncation'
 
 describe('spineScale', () => {
@@ -295,5 +296,73 @@ describe('truncation', () => {
 
   it('handles a post with no body at all', () => {
     expect(isClampable({})).toBe(false)
+  })
+})
+
+describe('positionProblem', () => {
+  const BOOK = { title: 'Piranesi', total_chapters: 45 }
+  const at = (chapter, page = '') => positionProblem({ chapter, page }, BOOK)
+
+  it('accepts a chapter inside the book', () => {
+    expect(at('44')).toBeNull()
+  })
+
+  it('accepts the last chapter', () => {
+    expect(at('45')).toBeNull()
+  })
+
+  it('rejects one past the end', () => {
+    expect(at('46')).toBe('Piranesi has 45 chapters, so there is no chapter 46.')
+  })
+
+  // The exact sentence the server sends, so a member sees one wording.
+  it('words the rejection the way the backend does', () => {
+    expect(at('99')).toBe('Piranesi has 45 chapters, so there is no chapter 99.')
+  })
+
+  it('accepts any chapter when the book states no length', () => {
+    expect(positionProblem({ chapter: '9000' }, { title: 'X', total_chapters: null }))
+      .toBeNull()
+  })
+
+  it('accepts any chapter when there is no book yet', () => {
+    expect(positionProblem({ chapter: '9000' }, null)).toBeNull()
+  })
+
+  it('accepts an empty position', () => {
+    expect(at('')).toBeNull()
+  })
+
+  // inputMode="numeric" is a keyboard hint, not a constraint: a paste puts
+  // anything in the field, and Number('abc') serialises to null.
+  it.each(['abc', '1.5', '1e9', '-5', '٤'])(
+    'rejects %j as a chapter',
+    (raw) => {
+      expect(at(raw)).toMatch(/whole number|1 or more/)
+    },
+  )
+
+  it('treats a whitespace-only chapter as no chapter, not as invalid', () => {
+    expect(at('   ')).toBeNull()
+  })
+
+  it('rejects zero', () => {
+    expect(at('0')).toBe('A chapter is 1 or more.')
+  })
+
+  it('tolerates surrounding whitespace', () => {
+    expect(at('  12  ')).toBeNull()
+  })
+
+  it('rejects a page without a chapter', () => {
+    expect(at('', '204')).toBe('A page needs a chapter to go with it.')
+  })
+
+  it('rejects a page that is not a whole number', () => {
+    expect(at('12', 'xii')).toBe('A page is a whole number.')
+  })
+
+  it('accepts a valid chapter and page', () => {
+    expect(at('12', '204')).toBeNull()
   })
 })

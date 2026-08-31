@@ -181,6 +181,29 @@ Timestamp resolution may be coarse enough for two entries to tie. Ties resolve
 by input order, deterministically, so that ordering never depends on iteration
 order.
 
+### Division bounds
+
+An entry's division must fall inside the work it belongs to:
+
+```
+valid  ⟺  work states no length,  or  division ≤ stated length
+```
+
+A work that states no length admits any division: requiring a length before the
+system is usable was rejected, and an unknown length cannot exclude anything.
+
+The rule is enforced on every write, and a *response* is exempt because it
+copies the position of the entry it answers, which was bounded when that entry
+was written.
+
+It also has to keep holding afterwards, so shortening a work below its existing
+entries is refused rather than silently stranding them. Lengthening a work, or
+clearing its stated length, can never exclude anything and is always allowed.
+
+The consequence of omitting this rule is not cosmetic. Position resolution would
+place the member at the out-of-range division, nothing would then be ahead of
+them, and concealment would switch off for the entire work.
+
 ### Scale calibration
 
 The visual scale of the progress indicator:
@@ -192,9 +215,14 @@ length unknown  →  (max(ceil(highest observed × 1.2), 10), estimated)
 
 The *estimated* flag reports whether the work declared its own length, not
 whether the number was adjusted. A stated length that an entry overshoots is
-still not an estimate — the overshoot is a data error, and the indicator's job
-is to stay honest about its source while still containing every entry. An
-indicator that draws a marker past its own end is worse than one that stretches.
+still not an estimate — the indicator's job is to stay honest about its source
+while still containing every entry. An indicator that draws a marker past its
+own end is worse than one that stretches.
+
+Writing an entry past a stated length is refused (see *Division bounds* above),
+and so is shortening a work below its existing entries, so an overshoot can only
+reach the system through the datastore directly. That route stays supported,
+which is why the calculation still tolerates one.
 
 The floor of 10 applies only to the estimated branch. A known length of 3 is
 drawn as 3.
