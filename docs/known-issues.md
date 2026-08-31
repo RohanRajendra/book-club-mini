@@ -97,6 +97,10 @@ not. Both are pinned.
 
 ## Tier 2 — wrong output, recoverable
 
+**All six are fixed.** Two of them turned out to be worse than the audit
+recorded: #9 is a per-minute tie rather than a per-second one, and #7 had a
+fourth reachable path nobody had listed.
+
 ### 5. A 200,000-character post could be previewed as one character — **fixed**
 
 `BodySplitter` took the *last* space in the first 1,900 characters as the cut
@@ -274,10 +278,16 @@ implementation, not a specification of the product.
 - **No cross-entity invariant is tested anywhere.** Every validation is
   intra-object or single-lookup. Issue #2 was one instance of a missing class.
 - **Boundary tests exist only at the low end.** Zero, negative and empty are
-  covered diligently; nothing above a limit is ever sent.
+  covered diligently; nothing above a limit is ever sent. *Partly addressed:*
+  the issue #5 fix pins the preview threshold from both sides, at exactly the
+  floor and one character below it.
 - **One non-ASCII value in the whole suite**, and the assertion on the next line
   slices it out of the comparison.
 - **No concurrency tests.** The token-bucket burst test is a sequential loop.
+  *Addressed for one case:* the issue #8 fix adds the first test that actually
+  interleaves two operations. That absence was the reason the race existed —
+  everything else runs to completion between statements, so a write landing
+  *during* a read was not a state any test could reach.
 - **Every use-case test injects one shared unit of work**, never a real factory,
   so the per-call shape production uses is untested.
 - **Vacuous and change-detector assertions**: `assert "body" not in post` on a
@@ -288,10 +298,23 @@ implementation, not a specification of the product.
   and are now shared through `application/position_rules.py` and
   `lib/positionRules.js`, which at least name each other.
 
-The convention adopted with issue #2, and worth applying to each fix that
-follows: **after adding a guard, delete it and confirm the suite fails.** Eight
-mutations were tried against the issue #2 fix; the one that survived exposed an
-untested path, which is now covered.
+The convention adopted with issue #2, and applied to every fix since: **after
+adding a guard, delete it and confirm the suite fails.** Fifty-three mutations
+across the ten fixes, all killed. Four survived a first pass, and each one named
+a real hole rather than a cosmetic one:
+
+| Fix | Survivor | What it exposed |
+| --- | --- | --- |
+| #2 | `_tightens` always true | Clearing a book's total was untested |
+| #5 | `rstrip()` deleted | Every boundary test used a single space, never a run |
+| #7 | Only `in_trash` read | The legacy spelling was written but never read back |
+| #8 | Entry stamped on return | An undocumented decision, and the opposite of a defect |
+
+The habit that keeps paying: a test written by reading the implementation
+terminates green. Five tests in this audit asserted the defect as intended
+behaviour and had to be inverted — five in the Notion mappers for issue #1, and
+one in the resolver for issue #9, whose neighbour already stated the correct
+rule but only checked it where the rule made no difference.
 
 ---
 
