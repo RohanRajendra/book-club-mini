@@ -125,6 +125,9 @@ class PostMapper:
             parent_post_id=parent_post_id,
             created_at=_timestamp(page, "created_time"),
             edited_at=_timestamp(page, "last_edited_time"),
+            # `archived` is the pre-2025-09-03 spelling; a workspace on either
+            # version has to report a trashed page as deleted.
+            is_deleted=bool(page.get("in_trash") or page.get("archived")),
         )
 
     def to_properties(self, post: Post) -> dict[str, Any]:

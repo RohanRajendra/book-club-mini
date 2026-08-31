@@ -207,6 +207,39 @@ class TestPosts:
         assert response.status_code == 204
         assert response.content == b""
 
+    async def test_deleting_the_same_post_twice_returns_404_the_second_time(
+        self, client
+    ):
+        """A deleted post is archived rather than destroyed, so it is still
+        there to be found by id. It answered 204 every time until the use
+        cases learned to tell the difference."""
+        created = await client.post(
+            "/api/posts", json={"book_id": BOOK.value, "type": "Thought", "body": "x"}
+        )
+        post_id = created.json()["id"]
+        assert (await client.delete(f"/api/posts/{post_id}")).status_code == 204
+        second = await client.delete(f"/api/posts/{post_id}")
+        assert second.status_code == 404
+        assert second.json() == {"error": "That post is gone."}
+
+    async def test_editing_a_deleted_post_returns_404(self, client):
+        created = await client.post(
+            "/api/posts", json={"book_id": BOOK.value, "type": "Thought", "body": "x"}
+        )
+        post_id = created.json()["id"]
+        await client.delete(f"/api/posts/{post_id}")
+        response = await client.patch(f"/api/posts/{post_id}", json={"body": "Back."})
+        assert response.status_code == 404
+
+    async def test_the_body_of_a_deleted_post_returns_404(self, client):
+        created = await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Thought", "body": "y" * 2500},
+        )
+        post_id = created.json()["id"]
+        await client.delete(f"/api/posts/{post_id}")
+        assert (await client.get(f"/api/posts/{post_id}/body")).status_code == 404
+
     async def test_delete_of_an_unknown_post_returns_404(self, client):
         assert (await client.delete("/api/posts/nope")).status_code == 404
 

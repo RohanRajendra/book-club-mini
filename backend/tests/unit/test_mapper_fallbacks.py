@@ -135,6 +135,30 @@ class TestPostFallbacks:
         assert post.created_at is None and post.edited_at is None
 
 
+class TestPostDeletedFlag:
+    """Notion renamed the trashed flag in API version 2025-09-03.
+
+    `_set_trashed` already falls back to the old spelling when writing, so a
+    workspace on either version can be read back correctly. Only the write side
+    was covered."""
+
+    def test_a_page_in_the_trash_is_deleted(self):
+        page = post_page()
+        page["in_trash"] = True
+        assert POSTS.to_domain(page).is_deleted is True
+
+    def test_the_pre_2025_09_03_archived_spelling_is_honoured(self):
+        page = post_page()
+        page.pop("in_trash", None)
+        page["archived"] = True
+        assert POSTS.to_domain(page).is_deleted is True
+
+    def test_a_page_that_says_nothing_about_the_trash_is_not_deleted(self):
+        page = post_page()
+        page.pop("in_trash", None)
+        assert POSTS.to_domain(page).is_deleted is False
+
+
 class TestPostProperties:
     def base(self, **overrides) -> Post:
         return Post(

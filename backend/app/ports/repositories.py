@@ -46,7 +46,12 @@ class PostRepository(ABC):
 
     @abstractmethod
     async def get(self, post_id: PostId) -> Post | None:
-        """Retrieve by id, including archived posts."""
+        """Retrieve by id, including archived posts, with `is_deleted` set.
+
+        Archived posts are returned on purpose — a soft delete has to stay
+        recoverable. The flag is what keeps that from making a deleted post
+        indistinguishable from a live one.
+        """
 
     @abstractmethod
     async def add(self, post: Post, full_body: str | None = None) -> Post:

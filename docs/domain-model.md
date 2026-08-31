@@ -411,7 +411,11 @@ already durable by then.
 ### Deletion
 
 Records are archived, never destroyed, so that a mistaken deletion is
-recoverable through the storage system's own facilities.
+recoverable through the storage system's own facilities. An archived post is
+still retrievable by identifier and carries `is_deleted`; every use case that
+reads a post by id treats it as gone, through one shared rule in
+`application/post_access.py`. Absent and deleted give the same answer, so a
+deleted post cannot be edited, deleted again, replied to, or read.
 
 ### Caching
 

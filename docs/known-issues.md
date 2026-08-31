@@ -129,11 +129,32 @@ with a body is still accepted as a reply.
 
 Four mutations, all killed.
 
-### 7. Deleted posts remain fully operable — **M**
+### 7. Deleted posts remained fully operable — **fixed**
 
-`Post` carries no archived state and `PostRepository.get` is contractually
-required to return archived posts. Editing a deleted post returns `200`;
-deleting one twice returns `204` twice; its body is still fetchable.
+`Post` carried no archived state, and `PostRepository.get` is contractually
+required to return archived posts — deliberately, because a soft delete has to
+stay recoverable. With nothing to tell the two apart, a deleted post answered
+exactly like a live one: editing it returned `200`, deleting it twice returned
+`204` twice, and its body was still fetchable.
+
+Closed by making deleted-ness visible rather than by hiding the row. `Post`
+gains `is_deleted`, set by the store on read — the in-memory adapter derives it
+from its archived set, the Notion adapter from `in_trash` (or the pre-2025-09-03
+`archived` spelling). The write side already had that fallback; the read side
+did not.
+
+Four use cases read a post by id, so the rule lives once in
+`application/post_access.py`. The fourth was not in the original report and
+turned up while wiring the other three: **replying to a deleted post** was
+accepted, and the reply then never appeared anywhere.
+
+Absent and deleted give the same answer on purpose. A member who deleted a post
+does not need the difference explained, and explaining it would leak that the
+row is still there.
+
+Nine mutations, all killed. The survivor on the first pass was reading only
+`in_trash` and not the legacy `archived` — a spelling the write path handles and
+no test read back.
 
 ### 8. An in-flight read repopulates the cache with pre-write data — **S**
 

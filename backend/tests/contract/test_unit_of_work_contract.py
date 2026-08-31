@@ -140,6 +140,23 @@ class UnitOfWorkContract:
             await uow.posts.archive(stored.id)
             assert await uow.posts.get(stored.id) is not None
 
+    async def test_a_retrieved_archived_post_says_it_is_deleted(self, uow):
+        """`get` keeps returning archived posts on purpose — a soft delete has
+        to stay recoverable. That only works if the caller can tell, otherwise
+        a deleted post is indistinguishable from a live one and stays fully
+        operable."""
+        async with uow:
+            stored = await uow.posts.add(make_post(id=None))
+            await uow.posts.archive(stored.id)
+            assert (await uow.posts.get(stored.id)).is_deleted is True
+
+    async def test_a_live_post_does_not_say_it_is_deleted(self, uow):
+        async with uow:
+            stored = await uow.posts.add(make_post(id=None))
+            assert (await uow.posts.get(stored.id)).is_deleted is False
+            listed = await uow.posts.list_for_book(stored.book_id)
+            assert [post.is_deleted for post in listed] == [False]
+
     async def test_reply_is_listed_alongside_top_level_posts(self, uow):
         async with uow:
             parent = await uow.posts.add(make_post(id=None))

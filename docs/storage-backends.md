@@ -63,16 +63,18 @@ documents or dictionaries. Storage-specific shapes must stop at your mapper.
 | `books.add` | Assign an identifier; return the stored entity |
 | `books.update` | Fail loudly on an unknown identifier |
 | `list_for_book` | Unarchived posts only, top-level and replies together, newest first |
-| `posts.get` | Returns archived posts too |
+| `posts.get` | Returns archived posts too, with `is_deleted` set |
 | `posts.add` | Assign identifier and timestamps; return the stored entity |
 | `posts.update` | Preserve `created_at`; refresh `edited_at` |
-| `archive` | Soft-delete. The record must remain retrievable by identifier |
+| `archive` | Soft-delete. The record must remain retrievable, and report `is_deleted` |
 | `get_full_body` | The complete body, or the preview when `has_full_body` is false |
 
 Two are easy to get wrong:
 
 - **`archive` is not a delete.** `list_for_book` must exclude archived posts
-  while `get` still returns them.
+  while `get` still returns them — *and says so*, by setting `is_deleted` on
+  what it returns. Returning an archived post that looks live is how a deleted
+  post stays editable; the flag is what the use cases read.
 - **`add` and `update` take `full_body` as a separate parameter.** The entity
   carries only the preview and a flag. Storing the full body on the entity would
   defeat the mechanism that keeps feed rendering from loading every body.
@@ -181,7 +183,8 @@ Four decisions embedded there:
 - **`has_full_body` is derived**, not stored: `full_body IS NOT NULL`. Storing
   both invites them to disagree.
 - **`archived` is a boolean**, and the partial index matches the query that
-  matters.
+  matters. `list_for_book` filters on it; `get` selects it and maps it onto
+  `Post.is_deleted`.
 - **`parent_post_id` is a real foreign key.** Notion cannot express this, which
   is why it uses plain text there. Use the constraint if you have it.
 
@@ -395,7 +398,7 @@ Also revisit, since each exists to work around a Notion constraint:
 - [ ] Column or field names confined to the adapter's mapper module
 - [ ] `on_commit` fires after commit, never after rollback
 - [ ] `__aexit__` rolls back on exception and does not auto-commit
-- [ ] `archive` soft-deletes; `get` still returns archived records
+- [ ] `archive` soft-deletes; `get` still returns archived records, flagged `is_deleted`
 - [ ] `list_for_book` does not load full bodies
 - [ ] Container startup fails fast on an unreachable store
 - [ ] Configuration and `.env.example` updated

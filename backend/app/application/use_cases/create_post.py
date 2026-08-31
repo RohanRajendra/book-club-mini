@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from app.application.position_rules import chapter_beyond_book
+from app.application.post_access import post_is_gone
 from app.domain import errors
 from app.domain.entities import Post
 from app.domain.result import Err, Ok, Result
@@ -94,8 +95,9 @@ class CreatePost:
 
             if is_reply:
                 parent = await uow.posts.get(command.parent_post_id)
-                if parent is None:
-                    return Err(errors.PostNotFound("That post is gone."))
+                gone = post_is_gone(parent)
+                if gone is not None:
+                    return Err(gone)
                 if parent.is_reply:
                     return Err(
                         errors.CannotReplyToReply("Replies are one level deep.")

@@ -66,6 +66,10 @@ class Post:
     id: PostId | None = None
     created_at: datetime | None = None
     edited_at: datetime | None = None
+    #: Set by the store on read, never by a use case. A deleted post is
+    #: archived rather than destroyed and stays retrievable by id, so this is
+    #: the only thing that distinguishes it from a live one.
+    is_deleted: bool = False
 
     def __post_init__(self) -> None:
         if len(self.body_preview) > PREVIEW_LIMIT:

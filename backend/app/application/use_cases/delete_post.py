@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from app.application.post_access import post_is_gone
 from app.domain import errors
 from app.domain.result import Err, Ok, Result
 from app.domain.values import MemberName, PostId
@@ -36,8 +37,9 @@ class DeletePost:
         uow = self._uow_factory()
         async with uow:
             post = await uow.posts.get(command.post_id)
-            if post is None:
-                return Err(errors.PostNotFound("That post is gone."))
+            gone = post_is_gone(post)
+            if gone is not None:
+                return Err(gone)
             if post.member != command.member:
                 return Err(errors.NotPostOwner("You can only delete your own posts."))
 

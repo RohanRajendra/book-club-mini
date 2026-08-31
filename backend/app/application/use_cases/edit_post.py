@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from typing import Callable
 
 from app.application.position_rules import chapter_beyond_book
+from app.application.post_access import post_is_gone
 from app.domain import errors
 from app.domain.entities import Post
 from app.domain.result import Err, Ok, Result
@@ -51,8 +52,9 @@ class EditPost:
         uow = self._uow_factory()
         async with uow:
             post = await uow.posts.get(command.post_id)
-            if post is None:
-                return Err(errors.PostNotFound("That post is gone."))
+            gone = post_is_gone(post)
+            if gone is not None:
+                return Err(gone)
             if post.member != command.member:
                 return Err(errors.NotPostOwner("You can only edit your own posts."))
 

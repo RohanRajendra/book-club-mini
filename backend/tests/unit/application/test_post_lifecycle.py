@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.adapters.memory import InMemoryUnitOfWork
+from app.application.use_cases.create_post import CreatePost, CreatePostCommand
 from app.application.use_cases.delete_post import DeletePost, DeletePostCommand
 from app.application.use_cases.edit_post import EditPost, EditPostCommand
 from app.application.use_cases.get_post_body import GetPostBody, PostBodyQuery
@@ -427,6 +428,68 @@ class TestEditPostChapterBounds:
             EditPostCommand(post_id=post.id, member=ADA, body="Revised.", chapter=3)
         )
         assert isinstance(result.unwrap_err(), errors.BookNotFound)
+
+
+class TestDeletedPostsAreNotOperable:
+    """A deleted post is archived, not destroyed, and stays retrievable by id.
+
+    That is deliberate — a mistaken deletion has to be recoverable. It also
+    means every use case that reads a post by id has to notice, because
+    otherwise a deleted post answers exactly like a live one: editing it
+    returned 200, deleting it twice returned 204 twice, and its body was still
+    fetchable.
+    """
+
+    @pytest.fixture
+    async def deleted(self, seeded):
+        async with seeded:
+            post = await seeded.posts.add(
+                make_post(
+                    id=None,
+                    book_id=BOOK,
+                    member=ADA,
+                    body_preview="Gone.",
+                    position=Position(9),
+                )
+            )
+            await seeded.posts.archive(post.id)
+            await seeded.commit()
+        return post
+
+    async def test_editing_a_deleted_post_reports_it_gone(self, seeded, deleted):
+        result = await EditPost(uow_factory=lambda: seeded).execute(
+            EditPostCommand(post_id=deleted.id, member=ADA, body="Back.", chapter=9)
+        )
+        assert isinstance(result.unwrap_err(), errors.PostNotFound)
+
+    async def test_deleting_a_deleted_post_reports_it_gone(self, seeded, deleted):
+        result = await DeletePost(uow_factory=lambda: seeded).execute(
+            DeletePostCommand(post_id=deleted.id, member=ADA)
+        )
+        assert isinstance(result.unwrap_err(), errors.PostNotFound)
+
+    async def test_the_body_of_a_deleted_post_is_not_served(self, seeded, deleted):
+        result = await GetPostBody(
+            uow_factory=lambda: seeded,
+            spoiler_policy=ChapterFirstSpoilerPolicy(),
+            position_resolver=PositionResolver(),
+        ).execute(body_query(deleted.id))
+        assert isinstance(result.unwrap_err(), errors.PostNotFound)
+
+    async def test_replying_to_a_deleted_post_reports_it_gone(self, seeded, deleted):
+        """Not in the original report, but the same read: a reply to an
+        archived parent would be created and then never appear."""
+        create = CreatePost(uow_factory=lambda: seeded, roster=[ADA, GRACE])
+        result = await create.execute(
+            CreatePostCommand(
+                book_id=BOOK,
+                member=GRACE,
+                type=PostType.THOUGHT,
+                body="Agreed.",
+                parent_post_id=deleted.id,
+            )
+        )
+        assert isinstance(result.unwrap_err(), errors.PostNotFound)
 
 
 class TestGetPostBodyWithholdsSpoilers:

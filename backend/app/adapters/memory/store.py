@@ -94,9 +94,15 @@ class InMemoryPostRepository(PostRepository):
         ]
         return sorted(posts, key=lambda post: post.created_at, reverse=True)
 
+    def _flagged(self, post: Post) -> Post:
+        """The archived set is what says a post is deleted, not the stored
+        record — so an `update` cannot resurrect one by writing the flag."""
+        return replace(post, is_deleted=post.id.value in self._state.archived)
+
     async def get(self, post_id: PostId) -> Post | None:
         self._state.calls.append(("get", post_id.value))
-        return self._state.posts.get(post_id.value)
+        post = self._state.posts.get(post_id.value)
+        return self._flagged(post) if post is not None else None
 
     async def add(self, post: Post, full_body: str | None = None) -> Post:
         self._state.calls.append(("add", str(post.id)))

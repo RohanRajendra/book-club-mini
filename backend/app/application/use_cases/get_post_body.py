@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from app.application.post_access import post_is_gone
 from app.domain import errors
 from app.domain.policies import SpoilerPolicy
 from app.domain.result import Err, Ok, Result
@@ -53,8 +54,9 @@ class GetPostBody:
         uow = self._uow_factory()
         async with uow:
             post = await uow.posts.get(query.post_id)
-            if post is None:
-                return Err(errors.PostNotFound("That post is gone."))
+            gone = post_is_gone(post)
+            if gone is not None:
+                return Err(gone)
 
             # Costs one query, and only on the path that was already going to
             # make two. Skipped entirely once the member has revealed the post,
