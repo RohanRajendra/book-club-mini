@@ -215,6 +215,7 @@ classDiagram
     class PostRepository {
         <<abstract>>
         +list_for_book(book_id) list~Post~
+        +list_replies(parent_post_id) list~Post~
         +get(post_id) Post?
         +add(post, full_body) Post
         +update(post, full_body) Post

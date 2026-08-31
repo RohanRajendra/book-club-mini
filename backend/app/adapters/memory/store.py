@@ -99,6 +99,15 @@ class InMemoryPostRepository(PostRepository):
         posts.sort(key=lambda pair: (pair[1].created_at, pair[0]), reverse=True)
         return [self._flagged(post) for _, post in posts]
 
+    async def list_replies(self, parent_post_id: PostId) -> list[Post]:
+        self._state.calls.append(("list_replies", parent_post_id.value))
+        return [
+            self._flagged(post)
+            for post in self._state.posts.values()
+            if post.parent_post_id == parent_post_id
+            and post.id.value not in self._state.archived
+        ]
+
     def _flagged(self, post: Post) -> Post:
         """The archived set is what says a post is deleted, not the stored
         record — so an `update` cannot resurrect one by writing the flag."""

@@ -40,6 +40,7 @@ classDiagram
     class PostRepository {
         <<abstract>>
         +list_for_book(book_id) list~Post~
+        +list_replies(parent_post_id) list~Post~
         +get(post_id) Post?
         +add(post, full_body) Post
         +update(post, full_body) Post
@@ -63,6 +64,7 @@ documents or dictionaries. Storage-specific shapes must stop at your mapper.
 | `books.add` | Assign an identifier; return the stored entity |
 | `books.update` | Fail loudly on an unknown identifier |
 | `list_for_book` | Unarchived posts only, top-level and replies together, newest first — inside a tie too |
+| `list_replies` | Unarchived replies to one post. Filter in the store, do not scan |
 | `posts.get` | Returns archived posts too, with `is_deleted` set |
 | `posts.add` | Assign identifier and timestamps; return the stored entity |
 | `posts.update` | Preserve `created_at`; refresh `edited_at` |
@@ -75,6 +77,13 @@ Two are easy to get wrong:
   while `get` still returns them — *and says so*, by setting `is_deleted` on
   what it returns. Returning an archived post that looks live is how a deleted
   post stays editable; the flag is what the use cases read.
+- **`list_replies` exists because a capped listing cannot serve the delete
+  cascade.** Deleting a post archives its replies, and it used to find them by
+  scanning the book — which stops at 500 rows. A reply past the cap survived
+  its parent and then became invisible, because feed assembly drops a reply
+  whose parent is gone. Filter on the parent in the store. A relational backend
+  has the index already; against Notion it is a `rich_text` equality filter on
+  the parent id.
 - **Newest-first has to hold inside a tie.** Notion truncates `created_time`
   to the minute, so posts a moment apart share a timestamp as a matter of
   course, and `PositionResolver` breaks the tie by taking the first post
@@ -407,6 +416,7 @@ Also revisit, since each exists to work around a Notion constraint:
 - [ ] `__aexit__` rolls back on exception and does not auto-commit
 - [ ] `archive` soft-deletes; `get` still returns archived records, flagged `is_deleted`
 - [ ] `list_for_book` does not load full bodies
+- [ ] `list_replies` is filtered by the store, and is not capped by `list_for_book`
 - [ ] Two posts sharing a `created_at` list newest-first, not creation order
 - [ ] Container startup fails fast on an unreachable store
 - [ ] Configuration and `.env.example` updated

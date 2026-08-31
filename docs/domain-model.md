@@ -368,6 +368,7 @@ classDiagram
     class EntryRepository {
         <<abstract>>
         +list_for_work(id) list~Entry~
+        +list_replies(parent_id) list~Entry~
         +get(id) Entry?
         +add(entry, full_text) Entry
         +update(entry, full_text) Entry

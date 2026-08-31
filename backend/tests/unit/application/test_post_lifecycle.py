@@ -257,6 +257,22 @@ class TestDeletePost:
         archived = [call for call in seeded.posts.calls if call[0] == "archive"]
         assert archived == [("archive", reply.id.value), ("archive", parent.id.value)]
 
+    async def test_the_cascade_asks_for_replies_and_does_not_scan_the_book(
+        self, delete, seeded, parent
+    ):
+        """Scanning was the bug: a book-wide listing stops at 500 rows, so a
+        reply past that survived its parent and then vanished from the feed."""
+        async with seeded:
+            await seeded.posts.add(make_reply(parent, GRACE, id=None))
+            await seeded.commit()
+        seeded.posts.calls.clear()
+
+        await delete.execute(DeletePostCommand(post_id=parent.id, member=ADA))
+
+        made = [call[0] for call in seeded.posts.calls]
+        assert "list_replies" in made
+        assert "list_for_book" not in made
+
     async def test_deleting_a_reply_does_not_touch_its_parent(
         self, delete, seeded, parent
     ):

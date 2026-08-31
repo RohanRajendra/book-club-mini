@@ -12,11 +12,12 @@ import pytest
 import respx
 
 from app.adapters.notion.http import BASE_URL, NOTION_VERSION, NotionHttpClient, TokenBucket
+from app.application.use_cases.delete_post import DeletePost, DeletePostCommand
 from app.adapters.notion.repositories import MAX_PAGES, PAGE_SIZE
 from app.adapters.notion.unit_of_work import NotionUnitOfWork
 from app.domain.entities import Book, Post
 from app.domain.values import BookId, MemberName, Position, PostId, PostType
-from tests.builders import ADA, long_body, make_post
+from tests.builders import ADA, long_body, make_post, make_reply
 from tests.integration.notion_stub import BOOKS_DB, BOOKS_DS, POSTS_DS, NotionStub
 
 BOOK = BookId("book-page-id")
@@ -145,6 +146,28 @@ async def test_pagination_stops_at_the_page_cap_and_warns(uow, stub, caplog):
     assert len(listed) == PAGE_SIZE * MAX_PAGES
     assert len([b for v, p, b in stub.requests if p.endswith("/query")]) == MAX_PAGES
     assert "page cap" in caplog.text
+
+
+async def test_the_delete_cascade_reaches_a_reply_beyond_the_page_cap(uow, stub):
+    """The cascade found replies by scanning `list_for_book`, which stops at
+    500 rows. A reply older than that survived its parent and then vanished:
+    feed assembly drops a reply whose parent is missing, so it was invisible
+    forever while still counting against the query budget."""
+    async with uow:
+        parent = await uow.posts.add(make_post(id=None, book_id=BOOK, member=ADA))
+        reply = await uow.posts.add(make_reply(parent, ADA, id=None))
+        # Newest-first, so these push the pair off the end of the last page.
+        for _ in range(PAGE_SIZE * MAX_PAGES):
+            await uow.posts.add(make_post(id=None, book_id=BOOK))
+
+        assert parent.id not in {post.id for post in await uow.posts.list_for_book(BOOK)}
+
+    result = await DeletePost(uow_factory=lambda: uow).execute(
+        DeletePostCommand(post_id=parent.id, member=ADA)
+    )
+
+    assert result.unwrap() == 2
+    assert stub.pages[reply.id.value]["in_trash"] is True
 
 
 async def test_long_post_creation_sends_a_page_write_and_a_block_append(uow, stub):

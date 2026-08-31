@@ -277,7 +277,16 @@ def _matches(page: dict[str, Any], filter_: dict[str, Any] | None) -> bool:
     if "relation" in filter_:
         wanted = filter_["relation"]["contains"]
         return any(item["id"] == wanted for item in prop.get("relation", []))
-    return True  # pragma: no cover - only the relation filter is used
+    if "rich_text" in filter_:
+        # Notion adds plain_text on read; a page created through this stub only
+        # carries what was written, which is text.content.
+        wanted = filter_["rich_text"]["equals"]
+        text = "".join(
+            item.get("plain_text") or item.get("text", {}).get("content", "")
+            for item in prop.get("rich_text", [])
+        )
+        return text == wanted
+    return True  # pragma: no cover - only two filter shapes are used
 
 
 def mount(respx_mock, stub: NotionStub) -> NotionStub:

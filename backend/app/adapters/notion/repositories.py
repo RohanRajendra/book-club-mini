@@ -12,7 +12,12 @@ import logging
 from typing import Any
 
 from app.adapters.notion import rich_text
-from app.adapters.notion.mappers import BookMapper, PostMapper, POST_BOOK
+from app.adapters.notion.mappers import (
+    BookMapper,
+    PostMapper,
+    POST_BOOK,
+    POST_PARENT_ID,
+)
 from app.domain.entities import Book, Post
 from app.domain.values import BookId, PostId
 from app.ports.repositories import BookRepository, PostRepository
@@ -81,6 +86,20 @@ class NotionPostRepository(PostRepository):
             self._data_source_id,
             filter_={"property": POST_BOOK, "relation": {"contains": book_id.value}},
             sorts=[{"timestamp": "created_time", "direction": "descending"}],
+        )
+        return [self._mapper.to_domain(page) for page in pages]
+
+    async def list_replies(self, parent_post_id: PostId) -> list[Post]:
+        # Filtered by Notion rather than by scanning the book, so the cascade
+        # is not bounded by the book-wide page cap and costs one query instead
+        # of five.
+        pages = await _query(
+            self._client,
+            self._data_source_id,
+            filter_={
+                "property": POST_PARENT_ID,
+                "rich_text": {"equals": parent_post_id.value},
+            },
         )
         return [self._mapper.to_domain(page) for page in pages]
 

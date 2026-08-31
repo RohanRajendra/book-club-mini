@@ -25,6 +25,10 @@ class DeletePost:
     visible with some replies missing, rather than a vanished parent with
     orphans still counting against the query budget.
 
+    They are asked for by parent, not found by scanning the book. A book-wide
+    listing stops at 500 rows, and a reply past that survived its parent —
+    then vanished, because feed assembly drops a reply whose parent is gone.
+
     This is the second operation that justifies the unit of work: the whole
     delete runs inside one scope, so a failure triggers compensation.
     """
@@ -43,11 +47,7 @@ class DeletePost:
             if post.member != command.member:
                 return Err(errors.NotPostOwner("You can only delete your own posts."))
 
-            replies = [
-                other
-                for other in await uow.posts.list_for_book(post.book_id)
-                if other.parent_post_id == post.id
-            ]
+            replies = await uow.posts.list_replies(post.id)
             for reply in replies:
                 await uow.posts.archive(reply.id)
             await uow.posts.archive(post.id)

@@ -210,11 +210,34 @@ this audit. The test directly below it already said the resolver "must not take
 the last one it happens to walk past", but only ever checked it with distinct
 timestamps, where the rule makes no difference.
 
-### 10. Pagination cap crossed with the delete cascade — **M**
+### 10. Pagination cap crossed with the delete cascade — **fixed**
 
-`list_for_book` truncates at 500 posts and `DeletePost` finds replies by
-scanning it. Replies past the cap survive their parent, then vanish from the
-feed entirely while still consuming the query budget.
+`list_for_book` truncates at 500 posts, and `DeletePost` found replies by
+scanning it. A reply past the cap survived its parent — and then vanished,
+because feed assembly drops a reply whose parent is missing. Invisible forever,
+and still consuming the query budget.
+
+Closed by adding `list_replies(parent_post_id)` to the post repository and
+having the cascade ask for what it actually needs. The Notion adapter filters on
+the parent id server-side, so the cascade is no longer bounded by the book-wide
+cap and costs one query instead of five.
+
+The regression test reproduces the real thing rather than a shrunken version of
+it: a parent and its reply, then five hundred newer posts to push the pair off
+the end of the last page. Before the fix the cascade reported one post archived
+and left the reply behind.
+
+The filter shape was checked against the live workspace, because the stub is
+only this project's model of Notion and a wrong shape is a `400` in production
+that no stub-backed test can see. Notion accepts `rich_text: {equals: <id>}` on
+*Parent Post ID*, returns the one matching reply, and returns zero rows for an
+id that does not exist.
+
+Six mutations, all killed.
+
+Still true, and untouched: `list_for_book` itself stops at 500 posts and only
+logs a warning. A book that large has a real problem in the feed, which is a
+separate issue from the cascade silently missing work.
 
 ---
 

@@ -53,6 +53,17 @@ class PostRepository(ABC):
         """
 
     @abstractmethod
+    async def list_replies(self, parent_post_id: PostId) -> list[Post]:
+        """Every unarchived reply to one post.
+
+        Separate from `list_for_book` because the delete cascade needs *all* of
+        them, and a book-wide listing is capped — a reply past the cap survived
+        its parent and then became invisible, since feed assembly drops a reply
+        whose parent is gone. Asking for what is actually needed also stops the
+        cascade paying for a whole book to find two replies.
+        """
+
+    @abstractmethod
     async def get(self, post_id: PostId) -> Post | None:
         """Retrieve by id, including archived posts, with `is_deleted` set.
 

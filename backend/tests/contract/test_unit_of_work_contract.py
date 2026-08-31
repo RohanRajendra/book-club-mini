@@ -198,6 +198,30 @@ class UnitOfWorkContract:
             listed = await uow.posts.list_for_book(parent.book_id)
             assert {post.id for post in listed} == {parent.id, reply.id}
 
+    async def test_list_replies_returns_only_the_replies_to_that_post(self, uow):
+        async with uow:
+            parent = await uow.posts.add(make_post(id=None))
+            other = await uow.posts.add(make_post(id=None))
+            mine = await uow.posts.add(make_reply(parent, GRACE, id=None))
+            await uow.posts.add(make_reply(other, GRACE, id=None))
+
+            listed = await uow.posts.list_replies(parent.id)
+            assert [post.id for post in listed] == [mine.id]
+
+    async def test_list_replies_is_empty_for_a_post_with_none(self, uow):
+        async with uow:
+            parent = await uow.posts.add(make_post(id=None))
+            assert await uow.posts.list_replies(parent.id) == []
+
+    async def test_list_replies_excludes_archived_replies(self, uow):
+        """Already-deleted replies need no work from the cascade, and counting
+        them would report a delete as larger than it was."""
+        async with uow:
+            parent = await uow.posts.add(make_post(id=None))
+            reply = await uow.posts.add(make_reply(parent, GRACE, id=None))
+            await uow.posts.archive(reply.id)
+            assert await uow.posts.list_replies(parent.id) == []
+
     async def test_short_post_reports_has_full_body_false(self, uow):
         async with uow:
             stored = await uow.posts.add(make_post(id=None, body_preview="Short."))
