@@ -159,6 +159,23 @@ documented as such throughout.
 A **View as** control re-renders the page as the other member. It changes only
 which position drives the blur evaluation, never attribution.
 
+### The interface
+
+One screen, three columns. The feed holds a reading measure in the middle; the
+book, the type filters and the progress spine occupy the space either side,
+sticky, each in a collapsible section whose state is remembered. Below 1200px
+the side sections move above the feed and the spine turns horizontal; below
+760px everything stacks.
+
+Editing happens in the post being edited, replying under the post being replied
+to, and a long post expands and collapses in place. Nothing that acts on one
+post opens somewhere else on the page.
+
+Light and dark themes both ship. The app follows the operating system until the
+member uses the toggle, after which the choice is remembered. Colour is defined
+once, as custom properties, and redefined for dark under an attribute on the
+document element — no component knows which theme is in force.
+
 ### Operating constraints
 
 Notion permits roughly three requests per second per integration and returns

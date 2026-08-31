@@ -11,16 +11,29 @@ Each member runs the full stack on their own machine. There is no shared server
 and nothing is deployed.
 
 ```text
-┌ Piranesi ─────────────────────────────── Ada ─ View as [Ada ▾] ────┐
-│ Susanna Clarke        [Books ▾] [Edit book] [Refresh]              │
-│                                                                    │
-│      Ch 4                        Ch 12 · p.204                     │
-│  ────●───────────────────────────────●░░░░░░░░░░░░░░░░░░ Ch 30     │
-│    2 days ago                      3h ago      ← blurred for you   │
-│                                                                    │
-│ [New post]   All 7 · Progress 3 · Thoughts 3 · Questions 1         │
-└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ Book Club                     Viewing as [Ada ▾]   ● Ada    ⟳   ☾  │
+├──────────────┬─────────────────────────────────┬───────────────────┤
+│ ▾ BOOK       │ New post…                       │ ▾ PROGRESS        │
+│              │                                 │                   │
+│ Piranesi     │ ● Ada   Ch 4   2 days ago       │        Ch 1       │
+│ S. Clarke    │ Reached the halls of the…       │         │         │
+│              │ Reply  Edit  Delete             │         ●   Ada   │
+│ Status    …  │ ▾ 1 reply                       │         │         │
+│ Chapters  30 │ │ ● Grace  Quite.               │         ░░░░░     │
+│ [Piranesi ▾] │                                 │         ░  Grace  │
+│ [Edit] [Add] │ ● Grace  Ch 12 · p.204   3h ago │        Ch 30      │
+│              │ ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   │                   │
+│ ▾ FILTER   7 │      Ahead of you — Ch 12       │ ● Ada     Ch 4    │
+│ All        7 │      [Read anyway]              │ ● Grace   Ch 12   │
+│ Progress   3 │                                 │                   │
+│ Thoughts   3 │                                 │ [Update progress] │
+│ Questions  1 │                                 │                   │
+└──────────────┴─────────────────────────────────┴───────────────────┘
 ```
+
+The shaded run is the blur wash: everything past your own marker on the spine,
+and the body of any post anchored there.
 
 ## Features
 
@@ -33,6 +46,9 @@ and nothing is deployed.
 - **Long-form posts.** Bodies beyond the storage layer's field limit are stored
   intact and loaded on demand.
 - **A multi-book library** with one book current at a time.
+- **Light and dark themes**, following the operating system until you choose.
+- **A three-column layout** that keeps the book, the filters and the progress
+  spine beside the feed rather than above it, each section collapsible.
 
 ## Requirements
 
@@ -90,8 +106,18 @@ domain, and one contract suite runs against every implementation — which is th
 concrete meaning of being able to change database: write one adapter package,
 point the container at it, and run that suite.
 
+```text
+frontend/src/
+├── hooks/           all state and derivation
+├── lib/             pure helpers — API client, formatting, storage
+├── components/      presentational only
+└── styles/          tokens.css (both themes) and app.css (layout)
+```
+
 The frontend keeps all state, derivation and formatting in hooks and pure
-functions; components are presentational and untested by design.
+functions; components are presentational, and every one of them is excluded
+from the coverage gate. A single test mounts the whole app to check the pieces
+are wired together.
 
 ## Testing
 

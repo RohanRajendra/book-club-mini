@@ -25,9 +25,17 @@ export function useReveal() {
     return body
   }, [])
 
+  /** Back to the preview. The fetched body is dropped, not cached. */
+  const collapse = useCallback((postId) => {
+    setBodies((current) => {
+      const { [postId]: _dropped, ...rest } = current
+      return rest
+    })
+  }, [])
+
   const bodyFor = useCallback((post) => bodies[post.id] ?? post.body_preview, [bodies])
 
   const isExpanded = useCallback((postId) => postId in bodies, [bodies])
 
-  return { reveal, isRevealed, expand, isExpanded, bodyFor }
+  return { reveal, isRevealed, expand, collapse, isExpanded, bodyFor }
 }

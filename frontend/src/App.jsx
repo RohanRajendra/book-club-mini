@@ -1,18 +1,26 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-import { BookBar } from './components/BookBar'
 import { BookForm } from './components/BookForm'
+import { BookPanel } from './components/BookPanel'
 import { Composer } from './components/Composer'
 import { Feed } from './components/Feed'
 import { FilterChips } from './components/FilterChips'
+import { Panel } from './components/Panel'
+import { PostEditor } from './components/PostEditor'
 import { QuickProgress } from './components/QuickProgress'
+import { ReplyBox } from './components/ReplyBox'
 import { Spine } from './components/Spine'
+import { TopBar } from './components/TopBar'
 import { useBooks } from './hooks/useBooks'
 import { useComposer } from './hooks/useComposer'
 import { useFeed } from './hooks/useFeed'
 import { useMe } from './hooks/useMe'
+import { usePanels } from './hooks/usePanels'
 import { useReveal } from './hooks/useReveal'
+import { useTheme } from './hooks/useTheme'
+import { useToggleSet } from './hooks/useToggleSet'
 import { api } from './lib/api'
+import { lastProgressAt } from './lib/lastProgressAt'
 
 import './styles/tokens.css'
 import './styles/app.css'
@@ -20,6 +28,10 @@ import './styles/app.css'
 export default function App() {
   const me = useMe()
   const books = useBooks()
+  const theme = useTheme()
+  const panels = usePanels()
+  const threads = useToggleSet()
+
   const [viewer, setViewer] = useState(null)
   const [bookForm, setBookForm] = useState(null) // null | 'add' | book
   const [quickOpen, setQuickOpen] = useState(false)
@@ -39,6 +51,11 @@ export default function App() {
   const viewerPosition =
     feed.positions.find((entry) => entry.member === viewer)?.position ?? null
 
+  const lastPostAt = useMemo(
+    () => lastProgressAt(feed.feed?.posts ?? []),
+    [feed.feed],
+  )
+
   const composer = useComposer({
     viewerPosition,
     onSubmit: async (values) => {
@@ -52,17 +69,17 @@ export default function App() {
 
   if (me.error) {
     return (
-      <main className="app">
+      <div className="shell">
         <p className="notice">{me.error}</p>
-      </main>
+      </div>
     )
   }
 
-  async function reply(parentPost, values) {
+  async function reply(parentPost, body) {
     await api.createPost({
       book_id: books.selectedId,
       type: 'Thought',
-      body: values.body,
+      body,
       parent_post_id: parentPost.id,
     })
     setReplyingTo(null)
@@ -88,217 +105,176 @@ export default function App() {
     }
   }
 
+  const problem = feed.error || books.error || notice
+
   return (
-    <main className="app">
-      <BookBar
-        book={books.book}
-        books={books.books}
-        onSelect={books.select}
-        onAdd={() => setBookForm('add')}
-        onEdit={(book) => setBookForm(book)}
-        onRefresh={feed.refresh}
-        refreshing={feed.loading}
+    <div className="shell">
+      <TopBar
         member={me.member}
         members={me.members}
         viewer={viewer ?? me.member ?? ''}
         onViewAs={setViewer}
+        onRefresh={feed.refresh}
+        refreshing={feed.loading}
+        theme={theme.theme}
+        onToggleTheme={theme.toggle}
       />
+
+      <div className="columns">
+        <aside className="rail rail--left">
+          <Panel
+            id="book"
+            title="Book"
+            open={panels.isOpen('book')}
+            onToggle={panels.toggle}
+          >
+            <BookPanel
+              book={books.book}
+              books={books.books}
+              onSelect={books.select}
+              onAdd={() => setBookForm('add')}
+              onEdit={(book) => setBookForm(book)}
+            />
+          </Panel>
+
+          {books.book && (
+            <Panel
+              id="filter"
+              title="Filter"
+              badge={feed.counts.all}
+              open={panels.isOpen('filter')}
+              onToggle={panels.toggle}
+            >
+              <FilterChips
+                filter={feed.filter}
+                setFilter={feed.setFilter}
+                counts={feed.counts}
+              />
+            </Panel>
+          )}
+        </aside>
+
+        <main className="column">
+          {/* Keep the last-loaded feed on screen behind any error. */}
+          {problem && <p className="notice">{problem}</p>}
+
+          {!books.loading && !books.books.length && (
+            <p className="empty muted">No books yet. Add the one you're reading.</p>
+          )}
+
+          {books.book && (
+            <>
+              {composer.open ? (
+                <Composer composer={composer} onCancel={composer.cancel} />
+              ) : (
+                <button
+                  type="button"
+                  className="newpost"
+                  onClick={() => composer.setOpen(true)}
+                >
+                  New post…
+                </button>
+              )}
+
+              {!viewerPosition && feed.posts.length > 0 && (
+                <p className="hint muted">
+                  Post a progress update to start hiding spoilers.
+                </p>
+              )}
+
+              <Feed
+                posts={feed.posts}
+                roster={me.members}
+                reveal={reveal}
+                filter={feed.filter}
+                onReply={(post) => setReplyingTo(post.id)}
+                onEdit={(post) => setEditing(post)}
+                onDelete={remove}
+                replyingTo={replyingTo}
+                renderReplyBox={(post) => (
+                  <ReplyBox
+                    post={post}
+                    onCancel={() => setReplyingTo(null)}
+                    onSubmit={(body) => reply(post, body)}
+                  />
+                )}
+                editingId={editing?.id ?? null}
+                renderEditor={(post) => (
+                  <PostEditor
+                    post={post}
+                    onCancel={() => setEditing(null)}
+                    onSave={(values) => saveEdit(post, values)}
+                  />
+                )}
+                threads={threads}
+              />
+            </>
+          )}
+        </main>
+
+        <aside className="rail rail--right">
+          {books.book && (
+            <Panel
+              id="progress"
+              title="Progress"
+              open={panels.isOpen('progress')}
+              onToggle={panels.toggle}
+            >
+              <Spine
+                positions={feed.positions}
+                spine={feed.spine}
+                roster={me.members}
+                viewer={viewer ?? me.member}
+                lastPostAt={lastPostAt}
+                onQuickProgress={() => setQuickOpen(true)}
+              />
+
+              {quickOpen && (
+                <QuickProgress
+                  onCancel={() => setQuickOpen(false)}
+                  onSubmit={async (values) => {
+                    await api.createPost({
+                      book_id: books.selectedId,
+                      type: 'Progress',
+                      body: '',
+                      ...values,
+                    })
+                    setQuickOpen(false)
+                    await feed.refresh()
+                  }}
+                />
+              )}
+            </Panel>
+          )}
+        </aside>
+      </div>
 
       {bookForm && (
-        <BookForm
-          book={bookForm === 'add' ? null : bookForm}
-          onCancel={() => setBookForm(null)}
-          onSave={async (payload) => {
-            if (bookForm === 'add') await books.addBook(payload)
-            else await books.updateBook(bookForm.id, payload)
-            setBookForm(null)
-          }}
-        />
-      )}
-
-      {/* Keep the last-loaded feed on screen behind any error. */}
-      {(feed.error || books.error || notice) && (
-        <p className="notice">{feed.error || books.error || notice}</p>
-      )}
-
-      {!books.loading && !books.books.length && (
-        <p className="empty muted">No books yet. Add the one you're reading.</p>
-      )}
-
-      {books.book && (
-        <>
-          <Spine
-            positions={feed.positions}
-            spine={feed.spine}
-            roster={me.members}
-            viewer={viewer ?? me.member}
-            onQuickProgress={() => setQuickOpen(true)}
+        <div className="modal">
+          <button
+            type="button"
+            className="modal__backdrop"
+            aria-label="Close"
+            onClick={() => setBookForm(null)}
           />
-
-          {quickOpen && (
-            <QuickProgress
-              onCancel={() => setQuickOpen(false)}
-              onSubmit={async (values) => {
-                await api.createPost({
-                  book_id: books.selectedId,
-                  type: 'Progress',
-                  body: '',
-                  ...values,
-                })
-                setQuickOpen(false)
-                await feed.refresh()
+          <div
+            className="modal__panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label={bookForm === 'add' ? 'Add book' : 'Edit book'}
+          >
+            <BookForm
+              book={bookForm === 'add' ? null : bookForm}
+              onCancel={() => setBookForm(null)}
+              onSave={async (payload) => {
+                if (bookForm === 'add') await books.addBook(payload)
+                else await books.updateBook(bookForm.id, payload)
+                setBookForm(null)
               }}
             />
-          )}
-
-          {!viewerPosition && feed.posts.length > 0 && (
-            <p className="muted">Post a progress update to start hiding spoilers.</p>
-          )}
-
-          {composer.open ? (
-            <Composer composer={composer} onCancel={composer.cancel} />
-          ) : (
-            <button type="button" className="primary" onClick={() => composer.setOpen(true)}>
-              New post
-            </button>
-          )}
-
-          <FilterChips
-            filter={feed.filter}
-            setFilter={feed.setFilter}
-            counts={feed.counts}
-          />
-
-          <Feed
-            posts={feed.posts}
-            roster={me.members}
-            reveal={reveal}
-            filter={feed.filter}
-            onReply={(post) => setReplyingTo(post.id)}
-            onEdit={(post) => setEditing(post)}
-            onDelete={remove}
-            replyingTo={replyingTo}
-            renderReplyBox={(post) => (
-              <InlineBody
-                placeholder="Reply…"
-                onCancel={() => setReplyingTo(null)}
-                onSubmit={(body) => reply(post, { body })}
-              />
-            )}
-          />
-
-          {editing && (
-            <EditDialog
-              post={editing}
-              onCancel={() => setEditing(null)}
-              onSave={(values) => saveEdit(editing, values)}
-            />
-          )}
-        </>
+          </div>
+        </div>
       )}
-    </main>
-  )
-}
-
-function InlineBody({ placeholder, onSubmit, onCancel }) {
-  const [body, setBody] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  return (
-    <form
-      className="composer"
-      onKeyDown={(event) => event.key === 'Escape' && onCancel()}
-      onSubmit={async (event) => {
-        event.preventDefault()
-        if (!body.trim()) return
-        setBusy(true)
-        try {
-          await onSubmit(body)
-        } finally {
-          setBusy(false)
-        }
-      }}
-    >
-      <label className="sr-only" htmlFor="reply-body">
-        {placeholder}
-      </label>
-      <textarea
-        id="reply-body"
-        autoFocus
-        placeholder={placeholder}
-        value={body}
-        onChange={(event) => setBody(event.target.value)}
-      />
-      <div className="composer__footer">
-        <span className="spacer" />
-        <button type="button" onClick={onCancel}>
-          Cancel
-        </button>
-        <button type="submit" className="primary" disabled={busy || !body.trim()}>
-          Reply
-        </button>
-      </div>
-    </form>
-  )
-}
-
-function EditDialog({ post, onSave, onCancel }) {
-  const [body, setBody] = useState(post.body_preview)
-  const [chapter, setChapter] = useState(
-    post.position?.chapter != null ? String(post.position.chapter) : '',
-  )
-  const [page, setPage] = useState(
-    post.position?.page != null ? String(post.position.page) : '',
-  )
-  const [loaded, setLoaded] = useState(!post.has_full_body)
-
-  // Edit pre-loads the full body, fetching it first if the post is long.
-  useEffect(() => {
-    if (post.has_full_body) {
-      api.postBody(post.id).then(({ body: full }) => {
-        setBody(full)
-        setLoaded(true)
-      })
-    }
-  }, [post])
-
-  return (
-    <form
-      className="dialog"
-      onKeyDown={(event) => event.key === 'Escape' && onCancel()}
-      onSubmit={(event) => {
-        event.preventDefault()
-        onSave({
-          body,
-          chapter: chapter.trim() ? Number(chapter) : null,
-          page: page.trim() ? Number(page) : null,
-        })
-      }}
-    >
-      <div className="composer__row">
-        <input
-          inputMode="numeric"
-          placeholder="Chapter"
-          value={chapter}
-          onChange={(event) => setChapter(event.target.value)}
-        />
-        <input
-          inputMode="numeric"
-          placeholder="Page"
-          value={page}
-          onChange={(event) => setPage(event.target.value)}
-        />
-      </div>
-      <textarea value={body} onChange={(event) => setBody(event.target.value)} />
-      <div className="composer__footer">
-        <span className="spacer" />
-        <button type="button" onClick={onCancel}>
-          Cancel
-        </button>
-        <button type="submit" className="primary" disabled={!loaded}>
-          Save
-        </button>
-      </div>
-    </form>
+    </div>
   )
 }

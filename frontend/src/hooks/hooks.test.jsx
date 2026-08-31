@@ -1,13 +1,17 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { server } from '../test/setup'
 import { useBooks } from './useBooks'
 import { useComposer } from './useComposer'
 import { useFeed } from './useFeed'
 import { useMe } from './useMe'
+import { usePanels } from './usePanels'
+import { usePostEditor } from './usePostEditor'
 import { useReveal } from './useReveal'
+import { useTheme } from './useTheme'
+import { useToggleSet } from './useToggleSet'
 
 const post = (overrides = {}) => ({
   id: 'p1',
@@ -430,6 +434,37 @@ describe('useReveal', () => {
     expect(result.current.isExpanded('p1')).toBe(true)
     expect(result.current.bodyFor({ id: 'p1', body_preview: 'The whole…' })).toBe('The whole thing.')
   })
+
+  it('collapses back to the preview', async () => {
+    server.use(http.get('/api/posts/p1/body', () => HttpResponse.json({ body: 'The whole thing.' })))
+    const { result } = renderHook(() => useReveal())
+
+    await act(async () => {
+      await result.current.expand('p1')
+    })
+    act(() => result.current.collapse('p1'))
+
+    expect(result.current.isExpanded('p1')).toBe(false)
+    expect(result.current.bodyFor({ id: 'p1', body_preview: 'The whole…' })).toBe('The whole…')
+  })
+
+  it('collapsing one post leaves another expanded', async () => {
+    server.use(
+      http.get('/api/posts/:id/body', ({ params }) =>
+        HttpResponse.json({ body: `Body of ${params.id}.` }),
+      ),
+    )
+    const { result } = renderHook(() => useReveal())
+
+    await act(async () => {
+      await result.current.expand('p1')
+      await result.current.expand('p2')
+    })
+    act(() => result.current.collapse('p1'))
+
+    expect(result.current.isExpanded('p1')).toBe(false)
+    expect(result.current.isExpanded('p2')).toBe(true)
+  })
 })
 
 describe('useMe', () => {
@@ -450,5 +485,256 @@ describe('useMe', () => {
     const { result } = renderHook(() => useMe())
     await waitFor(() => expect(result.current.error).toBeTruthy())
     expect(result.current.loading).toBe(false)
+  })
+})
+
+describe('useToggleSet', () => {
+  it('starts from the ids it was given', () => {
+    const { result } = renderHook(() => useToggleSet(['p1']))
+    expect(result.current.has('p1')).toBe(true)
+    expect(result.current.has('p2')).toBe(false)
+  })
+
+  it('flips one id without touching the others', () => {
+    const { result } = renderHook(() => useToggleSet())
+    act(() => result.current.toggle('p1'))
+    expect(result.current.has('p1')).toBe(true)
+    expect(result.current.has('p2')).toBe(false)
+  })
+
+  it('flips back', () => {
+    const { result } = renderHook(() => useToggleSet(['p1']))
+    act(() => result.current.toggle('p1'))
+    expect(result.current.has('p1')).toBe(false)
+    expect(result.current.size).toBe(0)
+  })
+})
+
+describe('usePanels', () => {
+  beforeEach(() => window.localStorage.clear())
+
+  it('opens a panel it has never heard of', () => {
+    const { result } = renderHook(() => usePanels())
+    expect(result.current.isOpen('book')).toBe(true)
+  })
+
+  it('closes on toggle', () => {
+    const { result } = renderHook(() => usePanels())
+    act(() => result.current.toggle('book'))
+    expect(result.current.isOpen('book')).toBe(false)
+  })
+
+  it('reopens on a second toggle', () => {
+    const { result } = renderHook(() => usePanels())
+    act(() => result.current.toggle('book'))
+    act(() => result.current.toggle('book'))
+    expect(result.current.isOpen('book')).toBe(true)
+  })
+
+  it('remembers a collapse across a remount', () => {
+    const first = renderHook(() => usePanels())
+    act(() => first.result.current.toggle('book'))
+    first.unmount()
+
+    const { result } = renderHook(() => usePanels())
+    expect(result.current.isOpen('book')).toBe(false)
+  })
+
+  it('honours a default of closed', () => {
+    const { result } = renderHook(() => usePanels({ progress: false }))
+    expect(result.current.isOpen('progress')).toBe(false)
+    expect(result.current.isOpen('book')).toBe(true)
+  })
+
+  it('opens a panel added after the stored map was written', () => {
+    window.localStorage.setItem('bookclub.panels', JSON.stringify({ book: false }))
+    const { result } = renderHook(() => usePanels())
+    expect(result.current.isOpen('filter')).toBe(true)
+  })
+})
+
+describe('useTheme', () => {
+  let media
+
+  function stubMatchMedia(matches) {
+    const listeners = new Set()
+    const query = {
+      matches,
+      addEventListener: (_event, fn) => listeners.add(fn),
+      removeEventListener: (_event, fn) => listeners.delete(fn),
+    }
+    window.matchMedia = vi.fn(() => query)
+    return {
+      change(next) {
+        query.matches = next
+        listeners.forEach((fn) => fn({ matches: next }))
+      },
+      get listeners() {
+        return listeners
+      },
+    }
+  }
+
+  beforeEach(() => {
+    window.localStorage.clear()
+    media = stubMatchMedia(false)
+  })
+
+  afterEach(() => {
+    delete window.matchMedia
+  })
+
+  it('follows the system when nothing has been chosen', () => {
+    media = stubMatchMedia(true)
+    const { result } = renderHook(() => useTheme())
+    expect(result.current.theme).toBe('dark')
+    expect(result.current.followsSystem).toBe(true)
+  })
+
+  it('paints the theme onto the document element', () => {
+    const { result } = renderHook(() => useTheme())
+    expect(document.documentElement.dataset.theme).toBe('light')
+    act(() => result.current.toggle())
+    expect(document.documentElement.dataset.theme).toBe('dark')
+  })
+
+  it('toggles between the two', () => {
+    const { result } = renderHook(() => useTheme())
+    act(() => result.current.toggle())
+    expect(result.current.isDark).toBe(true)
+    act(() => result.current.toggle())
+    expect(result.current.isDark).toBe(false)
+  })
+
+  it('keeps following the system until the member decides', () => {
+    const { result } = renderHook(() => useTheme())
+    act(() => media.change(true))
+    expect(result.current.theme).toBe('dark')
+  })
+
+  it('stops following the system once the member decides', () => {
+    const { result } = renderHook(() => useTheme())
+    act(() => result.current.setTheme('light'))
+    act(() => media.change(true))
+    expect(result.current.theme).toBe('light')
+    expect(result.current.followsSystem).toBe(false)
+  })
+
+  it('remembers the choice across a remount', () => {
+    const first = renderHook(() => useTheme())
+    act(() => first.result.current.setTheme('dark'))
+    first.unmount()
+
+    const { result } = renderHook(() => useTheme())
+    expect(result.current.theme).toBe('dark')
+    expect(result.current.followsSystem).toBe(false)
+  })
+
+  it('stops listening when it unmounts', () => {
+    const { unmount } = renderHook(() => useTheme())
+    expect(media.listeners.size).toBe(1)
+    unmount()
+    expect(media.listeners.size).toBe(0)
+  })
+
+  it('falls back to light in a browser without matchMedia', () => {
+    delete window.matchMedia
+    const { result } = renderHook(() => useTheme())
+    expect(result.current.theme).toBe('light')
+  })
+
+  it('ignores a stored value that is not a theme', () => {
+    window.localStorage.setItem('bookclub.theme', '"chartreuse"')
+    const { result } = renderHook(() => useTheme())
+    expect(result.current.theme).toBe('light')
+  })
+})
+
+describe('usePostEditor', () => {
+  const short = post({ body_preview: 'A thought.', has_full_body: false })
+  const long = post({ id: 'p9', body_preview: 'The first 1,900…', has_full_body: true })
+
+  function bodyRoute(handler) {
+    server.use(http.get('/api/posts/:id/body', handler))
+  }
+
+  it('opens on the preview when that is the whole post', () => {
+    const { result } = renderHook(() => usePostEditor(short))
+    expect(result.current.fields.body).toBe('A thought.')
+    expect(result.current.loaded).toBe(true)
+  })
+
+  it('opens on the fields of the post being edited', () => {
+    const { result } = renderHook(() => usePostEditor(short))
+    expect(result.current.fields).toMatchObject({ chapter: '9', page: '204' })
+  })
+
+  it('leaves the position fields empty when the post has none', () => {
+    const { result } = renderHook(() => usePostEditor(post({ position: null })))
+    expect(result.current.fields).toMatchObject({ chapter: '', page: '' })
+  })
+
+  // Saving body_preview would truncate a long post to its own preview.
+  it('will not let a long post be saved before its full body arrives', async () => {
+    bodyRoute(() => HttpResponse.json({ body: 'The whole thing.' }))
+    const { result } = renderHook(() => usePostEditor(long))
+
+    expect(result.current.canSave).toBe(false)
+    await waitFor(() => expect(result.current.loaded).toBe(true))
+    expect(result.current.fields.body).toBe('The whole thing.')
+    expect(result.current.canSave).toBe(true)
+  })
+
+  it('reports a body that will not load', async () => {
+    bodyRoute(() => HttpResponse.error())
+    const { result } = renderHook(() => usePostEditor(long))
+    await waitFor(() => expect(result.current.error).toBeTruthy())
+    expect(result.current.canSave).toBe(false)
+  })
+
+  it('sends the edited values as numbers', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    const { result } = renderHook(() => usePostEditor(short, { onSave }))
+
+    act(() => result.current.setField('body', 'Revised.'))
+    act(() => result.current.setField('chapter', '11'))
+    await act(async () => {
+      await result.current.save()
+    })
+
+    expect(onSave).toHaveBeenCalledWith({ body: 'Revised.', chapter: 11, page: 204 })
+  })
+
+  it('sends null for a position that was cleared', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    const { result } = renderHook(() => usePostEditor(short, { onSave }))
+
+    act(() => result.current.setField('chapter', ''))
+    await act(async () => {
+      await result.current.save()
+    })
+
+    expect(onSave).toHaveBeenCalledWith({ body: 'A thought.', chapter: null, page: null })
+  })
+
+  it('clearing the chapter clears the page with it', () => {
+    const { result } = renderHook(() => usePostEditor(short))
+    act(() => result.current.setField('chapter', ''))
+    expect(result.current.fields.page).toBe('')
+  })
+
+  it('keeps the edit on screen when the save fails', async () => {
+    const onSave = vi.fn().mockRejectedValue(new Error('Notion said no.'))
+    const { result } = renderHook(() => usePostEditor(short, { onSave }))
+
+    act(() => result.current.setField('body', 'Revised.'))
+    let saved
+    await act(async () => {
+      saved = await result.current.save()
+    })
+
+    expect(saved).toBe(false)
+    expect(result.current.error).toBe('Notion said no.')
+    expect(result.current.fields.body).toBe('Revised.')
   })
 })

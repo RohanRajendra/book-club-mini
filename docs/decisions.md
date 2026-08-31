@@ -191,7 +191,13 @@ real transactions would run them automatically.
   hand-written on purpose, and a utility framework pulls a design toward the
   defaults it ships with.
 - **A frontend router or state manager** — one screen, and all state lives in
-  five hooks.
-- **Component tests** — not a coverage compromise but the constraint the frontend
-  is designed around: if a component holds something worth testing, that thing is
-  in the wrong place.
+  hooks.
+- **Component tests, beyond one** — not a coverage compromise but the constraint
+  the frontend is designed around: if a component holds something worth testing,
+  that thing is in the wrong place. The exception is
+  `frontend/src/test/app.test.jsx`, which mounts the whole app and asserts that
+  the pieces are wired together and reachable. It was added after a redesign in
+  which every hook test passed while the edit form rendered at the bottom of the
+  page instead of in the post being edited — a class of failure no hook test can
+  see. It queries by role and label only, and components stay outside the
+  coverage gate.

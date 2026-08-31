@@ -13,6 +13,24 @@
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      The theme has to be on <html> before the first paint. Left to React it
+      lands one frame late, and a dark-mode member gets a white flash on every
+      reload. Same key and same fallback as useTheme.
+    -->
+    <script>
+      try {
+        var stored = JSON.parse(localStorage.getItem('bookclub.theme'))
+        document.documentElement.dataset.theme =
+          stored === 'dark' || stored === 'light'
+            ? stored
+            : matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light'
+      } catch (e) {
+        document.documentElement.dataset.theme = 'light'
+      }
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

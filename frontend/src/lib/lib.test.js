@@ -1,12 +1,14 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 
 import { server } from '../test/setup'
 import { ApiError, api } from './api'
 import { formatPosition } from './formatPosition'
 import { formatExactTime, formatRelativeTime } from './formatTime'
+import { lastProgressAt } from './lastProgressAt'
 import { assignReaderColour, initialOf, readerColourFor } from './readerColour'
 import { MIN_SCALE, spineScale } from './spineScale'
+import { readSetting, writeSetting } from './storage'
 
 describe('spineScale', () => {
   it('uses total chapters when known', () => {
@@ -186,5 +188,88 @@ describe('api client', () => {
 
   it('is an ApiError subclass so callers can branch on it', () => {
     expect(new ApiError('x', 400)).toBeInstanceOf(Error)
+  })
+})
+
+describe('lastProgressAt', () => {
+  const progress = (member, at) => ({ member, type: 'Progress', created_at: at })
+
+  it('reports the newest progress post per member', () => {
+    expect(
+      lastProgressAt([
+        progress('Ada', '2026-03-01T09:00:00Z'),
+        progress('Ada', '2026-03-04T09:00:00Z'),
+        progress('Grace', '2026-03-02T09:00:00Z'),
+      ]),
+    ).toEqual({ Ada: '2026-03-04T09:00:00Z', Grace: '2026-03-02T09:00:00Z' })
+  })
+
+  it('keeps the newest whichever order it arrives in', () => {
+    expect(
+      lastProgressAt([
+        progress('Ada', '2026-03-04T09:00:00Z'),
+        progress('Ada', '2026-03-01T09:00:00Z'),
+      ]),
+    ).toEqual({ Ada: '2026-03-04T09:00:00Z' })
+  })
+
+  it('ignores thoughts, which are not a claim to have arrived anywhere', () => {
+    expect(
+      lastProgressAt([
+        { member: 'Ada', type: 'Thought', created_at: '2026-03-09T09:00:00Z' },
+        progress('Ada', '2026-03-01T09:00:00Z'),
+      ]),
+    ).toEqual({ Ada: '2026-03-01T09:00:00Z' })
+  })
+
+  it('skips a timestamp it cannot read rather than reporting NaN', () => {
+    expect(lastProgressAt([progress('Ada', 'not a date')])).toEqual({})
+  })
+
+  it('handles no posts at all', () => {
+    expect(lastProgressAt()).toEqual({})
+  })
+})
+
+describe('storage', () => {
+  beforeEach(() => window.localStorage.clear())
+
+  it('round-trips a value', () => {
+    writeSetting('theme', 'dark')
+    expect(readSetting('theme')).toBe('dark')
+  })
+
+  it('namespaces its keys so it cannot collide with anything else', () => {
+    writeSetting('theme', 'dark')
+    expect(window.localStorage.getItem('bookclub.theme')).toBe('"dark"')
+  })
+
+  it('returns the fallback for a key that was never written', () => {
+    expect(readSetting('theme', 'light')).toBe('light')
+  })
+
+  it('returns the fallback rather than throwing on corrupt JSON', () => {
+    window.localStorage.setItem('bookclub.panels', '{oh no')
+    expect(readSetting('panels', {})).toEqual({})
+  })
+
+  it('reports a failed write instead of taking the page down with it', () => {
+    const setItem = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(() => {
+        throw new DOMException('QuotaExceededError')
+      })
+    expect(writeSetting('theme', 'dark')).toBe(false)
+    setItem.mockRestore()
+  })
+
+  it('survives a browser that throws on read', () => {
+    const getItem = vi
+      .spyOn(Storage.prototype, 'getItem')
+      .mockImplementation(() => {
+        throw new DOMException('SecurityError')
+      })
+    expect(readSetting('theme', 'light')).toBe('light')
+    getItem.mockRestore()
   })
 })

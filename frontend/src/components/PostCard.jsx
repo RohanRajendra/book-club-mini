@@ -11,6 +11,8 @@ export function PostCard({
   onEdit,
   onDelete,
   replyCount = 0,
+  editing = false,
+  renderEditor,
   className = 'card',
   children,
 }) {
@@ -18,11 +20,10 @@ export function PostCard({
   const position = formatPosition(post.position)
   const blurred = post.is_spoiler && !reveal.isRevealed(post.id)
   const body = reveal.bodyFor(post)
-  // Read more never appears on a post that is not actually truncated.
-  const truncated = post.has_full_body && !reveal.isExpanded(post.id)
+  const expanded = reveal.isExpanded(post.id)
 
   return (
-    <article className={className}>
+    <article className={editing ? `${className} card--editing` : className}>
       <header className="card__head" style={{ color: colour }}>
         <span className="initial">
           <span>{initialOf(post.member)}</span>
@@ -35,43 +36,56 @@ export function PostCard({
         {post.was_edited && <span className="mono muted">edited</span>}
       </header>
 
-      {blurred ? (
-        <BlurOverlay post={post} onReveal={reveal.reveal} />
+      {editing ? (
+        renderEditor(post)
       ) : (
-        <p className="card__body">
-          {body}
-          {truncated && (
-            <>
-              {' '}
-              <button type="button" onClick={() => reveal.expand(post.id)}>
-                Read more
-              </button>
-            </>
+        <>
+          {blurred ? (
+            <BlurOverlay post={post} onReveal={reveal.reveal} />
+          ) : (
+            <p className="card__body">
+              {body}
+              {/* Never shown on a post that is not actually truncated. */}
+              {post.has_full_body && (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    className="linkbutton"
+                    onClick={() =>
+                      expanded ? reveal.collapse(post.id) : reveal.expand(post.id)
+                    }
+                  >
+                    {expanded ? 'Show less' : 'Read more'}
+                  </button>
+                </>
+              )}
+            </p>
           )}
-        </p>
-      )}
 
-      <div className="card__actions">
-        {onReply && (
-          <button type="button" onClick={() => onReply(post)}>
-            Reply
-          </button>
-        )}
-        {post.is_own && onEdit && (
-          <button type="button" onClick={() => onEdit(post)}>
-            Edit
-          </button>
-        )}
-        {post.is_own && onDelete && (
-          <button
-            type="button"
-            className="danger"
-            onClick={() => onDelete(post, replyCount)}
-          >
-            Delete
-          </button>
-        )}
-      </div>
+          <div className="card__actions">
+            {onReply && (
+              <button type="button" onClick={() => onReply(post)}>
+                Reply
+              </button>
+            )}
+            {post.is_own && onEdit && (
+              <button type="button" onClick={() => onEdit(post)}>
+                Edit
+              </button>
+            )}
+            {post.is_own && onDelete && (
+              <button
+                type="button"
+                className="danger"
+                onClick={() => onDelete(post, replyCount)}
+              >
+                Delete
+              </button>
+            )}
+          </div>
+        </>
+      )}
 
       {children}
     </article>
