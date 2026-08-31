@@ -11,11 +11,13 @@ which is the concrete meaning of the swappability goal.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from app.adapters.memory import InMemoryUnitOfWork, in_memory_uow_factory
 from app.domain.entities import Book, Post
-from app.domain.values import BookId, BookStatus, PostId, PostType
+from app.domain.values import BookId, BookStatus, Position, PostId, PostType
 from tests.builders import ADA, GRACE, long_body, make_book, make_post, make_reply
 
 NO_TRANSACTIONS = (
@@ -70,6 +72,36 @@ class UnitOfWorkContract:
             assert updated.author == "Susanna Clarke"
             assert updated.total_chapters == 30
             assert (await uow.books.get(stored.id)).status is BookStatus.CURRENTLY_READING
+
+    async def test_clearing_an_author_removes_it(self, uow):
+        """An update carries the whole entity, so a field left empty must end up
+        empty in the store.
+
+        A datastore that merges an update rather than replacing it will keep the
+        old value unless the adapter says "set this to nothing" explicitly. That
+        is invisible to an in-memory fake, which replaces the record — so it has
+        to be pinned here, where both implementations answer.
+        """
+        async with uow:
+            stored = await uow.books.add(
+                Book(title="Piranesi", author="Susanna Clarke")
+            )
+            updated = await uow.books.update(
+                Book(id=stored.id, title="Piranesi", author=None)
+            )
+
+            assert updated.author is None
+            assert (await uow.books.get(stored.id)).author is None
+
+    async def test_clearing_a_total_chapter_count_removes_it(self, uow):
+        async with uow:
+            stored = await uow.books.add(Book(title="Piranesi", total_chapters=30))
+            updated = await uow.books.update(
+                Book(id=stored.id, title="Piranesi", total_chapters=None)
+            )
+
+            assert updated.total_chapters is None
+            assert (await uow.books.get(stored.id)).total_chapters is None
 
     async def test_list_all_returns_books_from_an_empty_store_as_empty_list(self, uow):
         async with uow:
@@ -203,6 +235,30 @@ class UnitOfWorkContract:
                 second,
             )
             assert await uow.posts.get_full_body(stored.id) == second
+
+    async def test_clearing_a_page_number_removes_it(self, uow):
+        """A member who corrects "Ch 5 p.100" to "Ch 5" must not be silently
+        left on page 100."""
+        async with uow:
+            stored = await uow.posts.add(
+                make_post(id=None, position=Position(5, 100))
+            )
+            updated = await uow.posts.update(
+                replace(stored, position=Position(5)), None
+            )
+
+            assert updated.position == Position(5)
+            assert (await uow.posts.get(stored.id)).position == Position(5)
+
+    async def test_clearing_a_position_removes_it(self, uow):
+        async with uow:
+            stored = await uow.posts.add(
+                make_post(id=None, type=PostType.THOUGHT, position=Position(5, 100))
+            )
+            updated = await uow.posts.update(replace(stored, position=None), None)
+
+            assert updated.position is None
+            assert (await uow.posts.get(stored.id)).position is None
 
     # ------------------------------------------------------- transactional
 

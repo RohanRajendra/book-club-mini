@@ -19,19 +19,26 @@ doubles as a record of what has been checked.
 
 ## Tier 1 — silently wrong, or defeats the core feature
 
-### 1. Clearing a field silently fails against Notion, and the contract suite says it works — **L**
+### 1. Clearing a field silently failed against Notion — **fixed**
 
-`BookMapper.to_properties` and `PostMapper.to_properties` omit a property when
-its value is `None`. A Notion `PATCH` merges rather than replaces, so the old
-value survives. The in-memory adapter replaces the whole record, so it *does*
-clear.
+The mappers omitted a property when its value was `None`. A Notion `PATCH`
+merges rather than replaces, so the old value survived: removing a page number
+returned `200` with the page unchanged, and `Total Chapters` could not be
+cleared through the API at all. The in-memory adapter replaces the whole
+record, so it *did* clear — and the contract suite had no clearing test, so the
+project's central correctness claim certified behaviour production did not have.
 
-Removing a page number returns `200` with the page unchanged; `Total Chapters`
-cannot be cleared through the API at all. The contract suite contains no
-clearing test, so the project's central correctness claim — that the in-memory
-adapter is a trustworthy stand-in — certifies behaviour production does not
-have. Fixing it means sending explicit nulls and adding clearing to the
-contract, which will fail against Notion until the mapper is corrected.
+Closed by writing every property on every update, with the shape that means
+empty (`{"number": null}`, `{"rich_text": []}`), and by adding four clearing
+tests to the contract suite. Those tests were written first and failed against
+the Notion adapter and passed in-memory, which is the divergence stated above.
+Five existing tests asserted the omission as intended behaviour and were
+inverted.
+
+Verified against a live workspace, because the stateful stub is only this
+project's *model* of Notion and this fix depends on Notion honouring an
+explicit null. It does: author, total chapters, page and whole position all
+cleared.
 
 ### 2. A chapter was never bounded by the book — **fixed**
 

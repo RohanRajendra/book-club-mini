@@ -65,17 +65,18 @@ class BookMapper:
         )
 
     def to_properties(self, book: Book) -> dict[str, Any]:
-        properties: dict[str, Any] = {
+        """Every property, always — an absent one is not the same as an empty one.
+
+        Notion merges a page update rather than replacing it, so a property left
+        out keeps whatever it held before. Omitting `None` therefore makes a
+        field impossible to clear, and returns 200 while doing nothing.
+        """
+        return {
             BOOK_TITLE: {"title": rich_text.to_rich_text(book.title)},
             BOOK_STATUS: {"select": {"name": book.status.value}},
+            BOOK_AUTHOR: {"rich_text": rich_text.to_rich_text(book.author or "")},
+            BOOK_TOTAL_CHAPTERS: {"number": book.total_chapters},
         }
-        if book.author is not None:
-            properties[BOOK_AUTHOR] = {
-                "rich_text": rich_text.to_rich_text(book.author)
-            }
-        if book.total_chapters is not None:
-            properties[BOOK_TOTAL_CHAPTERS] = {"number": book.total_chapters}
-        return properties
 
 
 class PostMapper:
@@ -137,14 +138,20 @@ class PostMapper:
             },
             POST_HAS_FULL_BODY: {"checkbox": post.has_full_body},
         }
-        if post.position is not None:
-            properties[POST_CHAPTER] = {"number": post.position.chapter}
-            if post.position.page is not None:
-                properties[POST_PAGE] = {"number": post.position.page}
-        if post.parent_post_id is not None:
-            properties[POST_PARENT_ID] = {
-                "rich_text": rich_text.to_rich_text(post.parent_post_id.value)
-            }
+        # Written even when empty, for the reason given on BookMapper: a
+        # property left out of a Notion update keeps its previous value, so
+        # omitting None is what makes a position impossible to clear.
+        properties[POST_CHAPTER] = {
+            "number": post.position.chapter if post.position else None
+        }
+        properties[POST_PAGE] = {
+            "number": post.position.page if post.position else None
+        }
+        properties[POST_PARENT_ID] = {
+            "rich_text": rich_text.to_rich_text(
+                post.parent_post_id.value if post.parent_post_id else ""
+            )
+        }
         return properties
 
     @staticmethod

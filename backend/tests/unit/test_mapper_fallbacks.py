@@ -61,9 +61,20 @@ class TestBookFallbacks:
         page = book_page(**{"Total Chapters": {"number": 0}})
         assert BOOKS.to_domain(page).total_chapters is None
 
-    def test_to_properties_omits_none_valued_fields(self):
+    # A Notion update merges, so an omitted property keeps its old value. Every
+    # property is therefore always written, with the shape that means "empty":
+    # `None` for a number, `[]` for rich text.
+    def test_to_properties_writes_every_property_even_when_empty(self):
         properties = BOOKS.to_properties(Book(title="Piranesi"))
-        assert set(properties) == {"Title", "Status"}
+        assert set(properties) == {"Title", "Status", "Author", "Total Chapters"}
+
+    def test_an_absent_author_is_written_as_empty_rich_text(self):
+        properties = BOOKS.to_properties(Book(title="Piranesi", author=None))
+        assert properties["Author"] == {"rich_text": []}
+
+    def test_an_absent_total_chapter_count_is_written_as_a_null_number(self):
+        properties = BOOKS.to_properties(Book(title="Piranesi", total_chapters=None))
+        assert properties["Total Chapters"] == {"number": None}
 
     def test_to_properties_includes_author_and_chapters_when_present(self):
         properties = BOOKS.to_properties(
@@ -143,16 +154,26 @@ class TestPostProperties:
         assert properties["Chapter"] == {"number": 9}
         assert properties["Page"] == {"number": 204}
 
-    def test_a_position_without_a_page_omits_the_page_property(self):
+    # Same reason as BookMapper above: omitting a property is how a page
+    # number becomes impossible to clear.
+    def test_a_position_without_a_page_writes_a_null_page(self):
         properties = POSTS.to_properties(self.base(position=Position(9)))
-        assert "Page" not in properties
+        assert properties["Page"] == {"number": None}
 
-    def test_no_position_omits_both_properties(self):
+    def test_no_position_writes_both_as_null(self):
         properties = POSTS.to_properties(self.base(position=None))
-        assert "Chapter" not in properties and "Page" not in properties
+        assert properties["Chapter"] == {"number": None}
+        assert properties["Page"] == {"number": None}
 
-    def test_a_top_level_post_omits_parent_post_id(self):
-        assert "Parent Post ID" not in POSTS.to_properties(self.base())
+    def test_a_top_level_post_writes_an_empty_parent_post_id(self):
+        properties = POSTS.to_properties(self.base())
+        assert properties["Parent Post ID"] == {"rich_text": []}
+
+    def test_a_reply_writes_its_parent_post_id(self):
+        properties = POSTS.to_properties(
+            self.base(parent_post_id=PostId("p9"), type=PostType.REPLY)
+        )
+        assert properties["Parent Post ID"]["rich_text"][0]["text"]["content"] == "p9"
 
     def test_the_generated_name_includes_the_chapter(self):
         """For the owner's eyes inside Notion. Never parsed back."""
