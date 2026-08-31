@@ -6,7 +6,9 @@ Anything else is misplaced.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 
 from app.application.use_cases.books import BookCommand
 from app.application.use_cases.create_post import CreatePostCommand
@@ -34,6 +36,32 @@ router = APIRouter(prefix="/api")
 
 def container_of(request: Request) -> Container:
     return request.app.state.container
+
+
+def _identifier(kind, raw: str):
+    """Turn a path segment into a typed identifier, or reject the request.
+
+    The value-object guard raises `ValueError`, which is correct for a
+    programming error and wrong for user input: built straight from the path it
+    escaped to the catch-all handler, so `/api/books/%20/feed` answered 500. The
+    rule is not restated here — the exception is translated.
+    """
+    try:
+        return kind(raw)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="That isn't a valid id.") from None
+
+
+def book_id_of(book_id: str = Path(...)) -> BookId:
+    return _identifier(BookId, book_id)
+
+
+def post_id_of(post_id: str = Path(...)) -> PostId:
+    return _identifier(PostId, post_id)
+
+
+BookIdPath = Annotated[BookId, Depends(book_id_of)]
+PostIdPath = Annotated[PostId, Depends(post_id_of)]
 
 
 def unwrap(result):
@@ -78,19 +106,19 @@ async def add_book(
 
 @router.patch("/books/{book_id}", response_model=BookResponse)
 async def update_book(
-    book_id: str,
+    book_id: BookIdPath,
     payload: BookRequest,
     container: Container = Depends(container_of),
 ):
     book = unwrap(
-        await container.update_book().execute(BookId(book_id), _book_command(payload))
+        await container.update_book().execute(book_id, _book_command(payload))
     )
     return BookResponse.of(book)
 
 
 @router.get("/books/{book_id}/feed", response_model=FeedResponse)
 async def get_feed(
-    book_id: str,
+    book_id: BookIdPath,
     type: PostType | None = Query(default=None),
     as_member: str | None = Query(default=None, alias="as"),
     container: Container = Depends(container_of),
@@ -107,7 +135,7 @@ async def get_feed(
 
     feed = unwrap(
         await container.get_feed().execute(
-            FeedQuery(book_id=BookId(book_id), viewer=viewer, post_type=type)
+            FeedQuery(book_id=book_id, viewer=viewer, post_type=type)
         )
     )
     return FeedResponse.of(feed)
@@ -139,14 +167,14 @@ async def create_post(
 
 @router.patch("/posts/{post_id}", response_model=PostResponse)
 async def edit_post(
-    post_id: str,
+    post_id: PostIdPath,
     payload: EditPostRequest,
     container: Container = Depends(container_of),
 ):
     post = unwrap(
         await container.edit_post().execute(
             EditPostCommand(
-                post_id=PostId(post_id),
+                post_id=post_id,
                 member=container.member,
                 body=payload.body,
                 chapter=payload.chapter,
@@ -158,10 +186,12 @@ async def edit_post(
 
 
 @router.delete("/posts/{post_id}", status_code=204)
-async def delete_post(post_id: str, container: Container = Depends(container_of)):
+async def delete_post(
+    post_id: PostIdPath, container: Container = Depends(container_of)
+):
     unwrap(
         await container.delete_post().execute(
-            DeletePostCommand(post_id=PostId(post_id), member=container.member)
+            DeletePostCommand(post_id=post_id, member=container.member)
         )
     )
     return Response(status_code=204)
@@ -169,7 +199,7 @@ async def delete_post(post_id: str, container: Container = Depends(container_of)
 
 @router.get("/posts/{post_id}/body", response_model=BodyResponse)
 async def get_post_body(
-    post_id: str,
+    post_id: PostIdPath,
     reveal: bool = Query(default=False),
     container: Container = Depends(container_of),
 ):
@@ -181,7 +211,7 @@ async def get_post_body(
     body = unwrap(
         await container.get_post_body().execute(
             PostBodyQuery(
-                post_id=PostId(post_id), viewer=container.member, reveal=reveal
+                post_id=post_id, viewer=container.member, reveal=reveal
             )
         )
     )

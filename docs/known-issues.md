@@ -19,6 +19,9 @@ doubles as a record of what has been checked.
 
 ## Tier 1 — silently wrong, or defeats the core feature
 
+**All four are fixed.** They are kept here with what closed them, because a
+list of what has been checked is worth as much as a list of what has not.
+
 ### 1. Clearing a field silently failed against Notion — **fixed**
 
 The mappers omitted a property when its value was `None`. A Notion `PATCH`
@@ -74,13 +77,21 @@ member. The mismatch is in the permissive direction — a post shown blurred und
 *View as* may still return its body — and *View as* is a diagnostic, not a
 second identity.
 
-### 4. Blank path parameters return 500 instead of 400 — **S**
+### 4. Blank identifiers returned 500 — **fixed**
 
-The routers build `BookId(...)` and `PostId(...)` straight from user input, and
+The routers built `BookId(...)` and `PostId(...)` straight from user input, and
 that constructor *raises* on a whitespace string. `GET /api/books/%20/feed`,
-`PATCH /api/books/%20`, `DELETE /api/posts/%20` and `{"book_id": ""}` are all
-unhandled crashes. Entity guards documented as last-line assertions against a
-programming error are reachable from the network.
+`PATCH /api/books/%20`, `DELETE /api/posts/%20` and `{"book_id": ""}` were all
+unhandled crashes: entity guards documented as last-line assertions against a
+programming error, reachable from the network.
+
+Closed by translating the exception at the boundary rather than restating the
+rule. Path parameters arrive as typed identifiers through a dependency that
+answers `422`; identifiers in a request body are stripped and rejected when
+empty by the schema, which also tolerates the stray space on a pasted id.
+
+`422` is for an id that could not exist; `404` still means one that simply does
+not. Both are pinned.
 
 ---
 

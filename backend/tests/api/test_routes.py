@@ -537,3 +537,71 @@ class TestBodyEndpointWithholdsSpoilers:
         )
         assert response.status_code == 200
         assert response.json()["body"].startswith("He dies in chapter 40.")
+
+
+class TestBlankIdentifiers:
+    """A value object raises on a blank id — correct for a programming error,
+    wrong for user input. Built straight from the path, that exception reached
+    the catch-all handler and answered 500 to a plainly invalid request.
+
+    Every route that takes an id is listed, because the bug was per-route: one
+    fixed route would have left the others crashing.
+    """
+
+    @pytest.mark.parametrize(
+        "method,path",
+        [
+            ("GET", "/api/books/%20/feed"),
+            ("PATCH", "/api/books/%20"),
+            ("GET", "/api/posts/%20/body"),
+            ("PATCH", "/api/posts/%20"),
+            ("DELETE", "/api/posts/%20"),
+        ],
+    )
+    async def test_a_whitespace_id_in_the_path_is_rejected(self, client, method, path):
+        response = await client.request(
+            method, path, json={"title": "Piranesi"} if method == "PATCH" else None
+        )
+        assert response.status_code == 422
+        assert response.json() == {"error": "That isn't a valid id."}
+
+    @pytest.mark.parametrize("book_id", ["", "   ", "\t"])
+    async def test_a_blank_book_id_in_the_body_is_rejected(self, client, book_id):
+        response = await client.post(
+            "/api/posts", json={"book_id": book_id, "type": "Thought", "body": "Hi."}
+        )
+        assert response.status_code == 422
+
+    async def test_a_whitespace_parent_post_id_is_rejected(self, client):
+        """Whitespace is truthy, so this used to pass the `if` in the router and
+        reach the value object."""
+        response = await client.post(
+            "/api/posts",
+            json={
+                "book_id": BOOK.value,
+                "type": "Thought",
+                "body": "Hi.",
+                "parent_post_id": "   ",
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_an_absent_parent_post_id_is_still_fine(self, client):
+        response = await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Thought", "body": "Hi."},
+        )
+        assert response.status_code == 201
+
+    async def test_a_surrounding_space_on_a_real_id_is_tolerated(self, client):
+        """Stripped, not rejected — a copied-and-pasted id often carries one."""
+        response = await client.post(
+            "/api/posts",
+            json={"book_id": f" {BOOK.value} ", "type": "Thought", "body": "Hi."},
+        )
+        assert response.status_code == 201
+
+    async def test_an_unknown_but_well_formed_id_is_still_a_404(self, client):
+        """422 is for an id that cannot exist; 404 for one that simply does not."""
+        response = await client.get("/api/books/nope/feed")
+        assert response.status_code == 404

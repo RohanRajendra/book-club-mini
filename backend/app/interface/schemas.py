@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from typing import Annotated
+
+from pydantic import BaseModel, Field, StringConstraints
 
 from app.application.dto import Feed, FeedPost
 from app.domain.entities import Book, Post
@@ -130,6 +132,11 @@ class FeedResponse(BaseModel):
 MAX_CHAPTER = 10_000
 MAX_PAGE = 100_000
 
+#: An identifier arriving in a request body. Stripped, and empty after
+#: stripping is a 422 — the value object raises on a blank id, and that
+#: exception reaching the router used to surface as a 500.
+Identifier = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
 
 class BookRequest(BaseModel):
     title: str
@@ -139,12 +146,12 @@ class BookRequest(BaseModel):
 
 
 class CreatePostRequest(BaseModel):
-    book_id: str
+    book_id: Identifier
     type: PostType
     body: str = ""
     chapter: int | None = Field(default=None, ge=1, le=MAX_CHAPTER)
     page: int | None = Field(default=None, ge=1, le=MAX_PAGE)
-    parent_post_id: str | None = None
+    parent_post_id: Identifier | None = None
 
 
 class EditPostRequest(BaseModel):
