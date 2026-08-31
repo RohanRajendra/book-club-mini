@@ -22,26 +22,24 @@ export function PostEditor({ post, onSave, onCancel }) {
       }}
     >
       <div className="composer__row">
-        <label className="sr-only" htmlFor={`edit-chapter-${post.id}`}>
-          Chapter
+        <label className="field">
+          <span className="field__label mono muted">Chapter</span>
+          <input
+            id={`edit-chapter-${post.id}`}
+            inputMode="numeric"
+            value={fields.chapter}
+            onChange={(event) => setField('chapter', event.target.value)}
+          />
         </label>
-        <input
-          id={`edit-chapter-${post.id}`}
-          inputMode="numeric"
-          placeholder="Chapter"
-          value={fields.chapter}
-          onChange={(event) => setField('chapter', event.target.value)}
-        />
-        <label className="sr-only" htmlFor={`edit-page-${post.id}`}>
-          Page
+        <label className="field">
+          <span className="field__label mono muted">Page</span>
+          <input
+            id={`edit-page-${post.id}`}
+            inputMode="numeric"
+            value={fields.page}
+            onChange={(event) => setField('page', event.target.value)}
+          />
         </label>
-        <input
-          id={`edit-page-${post.id}`}
-          inputMode="numeric"
-          placeholder="Page"
-          value={fields.page}
-          onChange={(event) => setField('page', event.target.value)}
-        />
       </div>
 
       <label className="sr-only" htmlFor={`edit-body-${post.id}`}>

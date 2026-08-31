@@ -1,7 +1,11 @@
 import { formatPosition } from '../lib/formatPosition'
 import { formatExactTime, formatRelativeTime } from '../lib/formatTime'
 import { initialOf, readerColourFor } from '../lib/readerColour'
+import { isClampable } from '../lib/truncation'
 import { BlurOverlay } from './BlurOverlay'
+
+/** Thought is the default and Reply is obvious from the indent. */
+const BADGED = new Set(['Progress', 'Question'])
 
 export function PostCard({
   post,
@@ -21,14 +25,19 @@ export function PostCard({
   const blurred = post.is_spoiler && !reveal.isRevealed(post.id)
   const body = reveal.bodyFor(post)
   const expanded = reveal.isExpanded(post.id)
+  const clamped = isClampable(post) && !expanded
+  // A progress update carries its whole meaning in the header. Rendering an
+  // empty body under it leaves a card that looks like it failed to load.
+  const marker = !blurred && !editing && !body.trim()
 
   return (
-    <article className={editing ? `${className} card--editing` : className}>
+    <article className={cardClass(className, { editing, marker })}>
       <header className="card__head" style={{ color: colour }}>
         <span className="initial">
           <span>{initialOf(post.member)}</span>
         </span>
         <span className="card__member">{post.member}</span>
+        {BADGED.has(post.type) && <span className="card__type mono">{post.type}</span>}
         {position && <span className="mono muted">{position}</span>}
         <span className="mono muted" title={formatExactTime(post.created_at)}>
           {formatRelativeTime(post.created_at)}
@@ -40,27 +49,23 @@ export function PostCard({
         renderEditor(post)
       ) : (
         <>
-          {blurred ? (
-            <BlurOverlay post={post} onReveal={reveal.reveal} />
-          ) : (
-            <p className="card__body">
-              {body}
-              {/* Never shown on a post that is not actually truncated. */}
-              {post.has_full_body && (
-                <>
-                  {' '}
-                  <button
-                    type="button"
-                    className="linkbutton"
-                    onClick={() =>
-                      expanded ? reveal.collapse(post.id) : reveal.expand(post.id)
-                    }
-                  >
-                    {expanded ? 'Show less' : 'Read more'}
-                  </button>
-                </>
+          {blurred && <BlurOverlay post={post} onReveal={reveal.reveal} />}
+
+          {!blurred && !marker && (
+            <div className="card__text">
+              <p className={clamped ? 'card__body card__body--clamped' : 'card__body'}>
+                {body}
+              </p>
+              {isClampable(post) && (
+                <button
+                  type="button"
+                  className="linkbutton"
+                  onClick={() => (expanded ? reveal.collapse(post.id) : reveal.expand(post))}
+                >
+                  {expanded ? 'Show less' : 'Read more'}
+                </button>
               )}
-            </p>
+            </div>
           )}
 
           <div className="card__actions">
@@ -90,4 +95,10 @@ export function PostCard({
       {children}
     </article>
   )
+}
+
+function cardClass(base, { editing, marker }) {
+  return [base, editing && 'card--editing', marker && 'card--marker']
+    .filter(Boolean)
+    .join(' ')
 }

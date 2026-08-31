@@ -428,11 +428,24 @@ describe('useReveal', () => {
     expect(result.current.bodyFor({ id: 'p1', body_preview: 'The whole…' })).toBe('The whole…')
 
     await act(async () => {
-      await result.current.expand('p1')
+      await result.current.expand({ id: 'p1', has_full_body: true })
     })
 
     expect(result.current.isExpanded('p1')).toBe(true)
     expect(result.current.bodyFor({ id: 'p1', body_preview: 'The whole…' })).toBe('The whole thing.')
+  })
+
+  // A merely long post is already on the page; opening it must cost nothing.
+  it('expands a post that is not stored elsewhere without a request', async () => {
+    const { result } = renderHook(() => useReveal())
+    const long = { id: 'p1', has_full_body: false, body_preview: 'x'.repeat(900) }
+
+    await act(async () => {
+      await result.current.expand(long)
+    })
+
+    expect(result.current.isExpanded('p1')).toBe(true)
+    expect(result.current.bodyFor(long)).toBe(long.body_preview)
   })
 
   it('collapses back to the preview', async () => {
@@ -440,7 +453,7 @@ describe('useReveal', () => {
     const { result } = renderHook(() => useReveal())
 
     await act(async () => {
-      await result.current.expand('p1')
+      await result.current.expand({ id: 'p1', has_full_body: true })
     })
     act(() => result.current.collapse('p1'))
 
@@ -457,8 +470,8 @@ describe('useReveal', () => {
     const { result } = renderHook(() => useReveal())
 
     await act(async () => {
-      await result.current.expand('p1')
-      await result.current.expand('p2')
+      await result.current.expand({ id: 'p1', has_full_body: true })
+      await result.current.expand({ id: 'p2', has_full_body: true })
     })
     act(() => result.current.collapse('p1'))
 

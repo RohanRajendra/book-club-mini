@@ -9,6 +9,7 @@ import { lastProgressAt } from './lastProgressAt'
 import { assignReaderColour, initialOf, readerColourFor } from './readerColour'
 import { MIN_SCALE, spineScale } from './spineScale'
 import { readSetting, writeSetting } from './storage'
+import { CLAMP_CHARS, isClampable, needsFetch } from './truncation'
 
 describe('spineScale', () => {
   it('uses total chapters when known', () => {
@@ -271,5 +272,28 @@ describe('storage', () => {
       })
     expect(readSetting('theme', 'light')).toBe('light')
     getItem.mockRestore()
+  })
+})
+
+describe('truncation', () => {
+  const of = (o) => ({ body_preview: '', has_full_body: false, ...o })
+
+  it('clamps a post whose remainder lives elsewhere', () => {
+    expect(isClampable(of({ has_full_body: true, body_preview: 'short' }))).toBe(true)
+    expect(needsFetch(of({ has_full_body: true }))).toBe(true)
+  })
+
+  it('clamps a merely long post, and opens it without a request', () => {
+    const long = of({ body_preview: 'x'.repeat(CLAMP_CHARS + 1) })
+    expect(isClampable(long)).toBe(true)
+    expect(needsFetch(long)).toBe(false)
+  })
+
+  it('leaves a short post alone', () => {
+    expect(isClampable(of({ body_preview: 'x'.repeat(CLAMP_CHARS) }))).toBe(false)
+  })
+
+  it('handles a post with no body at all', () => {
+    expect(isClampable({})).toBe(false)
   })
 })

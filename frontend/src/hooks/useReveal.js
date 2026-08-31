@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import { api } from '../lib/api'
+import { needsFetch } from '../lib/truncation'
 
 /**
  * Per-post reveal and expand state.
@@ -17,11 +18,20 @@ export function useReveal() {
 
   const isRevealed = useCallback((postId) => revealed.has(postId), [revealed])
 
-  const expand = useCallback(async (postId) => {
-    // Read more fetches the full body on click. It never appears on a post
-    // that is not actually truncated, so this is only ever a real fetch.
-    const { body } = await api.postBody(postId)
-    setBodies((current) => ({ ...current, [postId]: body }))
+  /**
+   * Show the whole post.
+   *
+   * A post whose body exceeded the storage layer's field limit has its
+   * remainder elsewhere and has to be fetched. A merely long one is already on
+   * the page, and opening it should not cost a request.
+   */
+  const expand = useCallback(async (post) => {
+    if (!needsFetch(post)) {
+      setBodies((current) => ({ ...current, [post.id]: post.body_preview }))
+      return post.body_preview
+    }
+    const { body } = await api.postBody(post.id)
+    setBodies((current) => ({ ...current, [post.id]: body }))
     return body
   }, [])
 

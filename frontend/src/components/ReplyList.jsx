@@ -38,11 +38,13 @@ export function ReplyList({
         {replies.length} {replies.length === 1 ? 'reply' : 'replies'}
       </button>
 
+      {/* The rule is coloured through a variable rather than `color`, so the
+          reply bodies inside do not inherit the first replier's hue. */}
       <div
         id={listId}
         className="replies"
         hidden={collapsed}
-        style={{ color: readerColourFor(replies[0].member, roster) }}
+        style={{ '--thread': readerColourFor(replies[0].member, roster) }}
       >
         {replies.map((reply) => (
           <PostCard

@@ -12,10 +12,10 @@ export function BlurOverlay({ post, onReveal }) {
         {post.body_preview}
       </div>
       <div className="blur__overlay">
-        <span className="mono">
+        <span className="blur__label mono">
           Ahead of you{post.position ? ` — Chapter ${post.position.chapter}` : ''}
         </span>
-        <button type="button" onClick={() => onReveal(post.id)}>
+        <button type="button" className="blur__reveal" onClick={() => onReveal(post.id)}>
           Read anyway
         </button>
       </div>

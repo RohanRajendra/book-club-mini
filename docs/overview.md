@@ -164,8 +164,11 @@ which position drives the blur evaluation, never attribution.
 One screen, three columns. The feed holds a reading measure in the middle; the
 book, the type filters and the progress spine occupy the space either side,
 sticky, each in a collapsible section whose state is remembered. Below 1200px
-the side sections move above the feed and the spine turns horizontal; below
-760px everything stacks.
+the three sections gather into a single rail beside the feed; below 760px
+everything stacks and the spine turns horizontal.
+
+Long posts are clamped in the feed and open in place, so no single post can
+crowd out the others.
 
 Editing happens in the post being edited, replying under the post being replied
 to, and a long post expands and collapses in place. Nothing that acts on one

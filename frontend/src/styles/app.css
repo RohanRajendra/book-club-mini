@@ -46,9 +46,6 @@
   display: flex;
   flex-direction: column;
   gap: calc(var(--step) * 3);
-  max-height: calc(100vh - var(--topbar) - var(--step) * 8);
-  overflow-y: auto;
-  scrollbar-width: thin;
 }
 
 /* --- top bar -------------------------------------------------------------- */
@@ -209,6 +206,7 @@
 }
 
 .bookpanel__meta {
+  max-width: 22rem;
   display: flex;
   flex-direction: column;
   gap: calc(var(--step) * 0.5);
@@ -259,24 +257,39 @@
  * bottom. A tick's distance along the track is written as `--pos` so the
  * stacked layout below can reuse the same markup lying down.
  */
+/*
+ * The track is a 32px-wide box with the line drawn down its middle, not a 2px
+ * element with ticks hanging off it. Absolutely positioned ticks that overflow
+ * their parent make the sticky rail scrollable sideways.
+ */
 .spine__track {
   position: relative;
-  width: 2px;
+  width: 44px;
   height: 200px;
-  background: var(--rule);
   margin: calc(var(--step) * 5) auto;
+}
+
+.spine__track::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--rule);
 }
 
 .spine__track--estimated::after {
   content: '';
   position: absolute;
-  left: -1px;
+  left: 50%;
   bottom: -2px;
-  width: 4px;
+  width: 2px;
   height: 18%;
-  background: linear-gradient(to bottom, var(--rule) 0 2px, transparent 2px 6px);
+  transform: translateX(-50%);
+  background: linear-gradient(to bottom, var(--field) 0 2px, transparent 2px 6px);
   background-size: 2px 6px;
-  background-position: 1px 0;
   background-repeat: repeat-y;
 }
 
@@ -284,12 +297,13 @@
    the blur rule without copy. */
 .spine__ahead {
   position: absolute;
-  left: -9px;
-  right: -9px;
+  left: 50%;
+  width: 14px;
+  transform: translateX(-50%);
   top: var(--pos);
   bottom: 0;
-  background: var(--rule);
-  opacity: 0.45;
+  background: var(--wash);
+  border-radius: var(--radius);
   pointer-events: none;
 }
 
@@ -451,7 +465,7 @@
   padding: calc(var(--step) * 3);
 }
 
-.newpost:hover {
+.newpost:hover:not(:disabled) {
   color: var(--ink);
   background: var(--surface);
   border-color: var(--muted);
@@ -503,8 +517,24 @@
   flex-wrap: wrap;
 }
 
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--step) * 0.5);
+}
+
+.field__label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.composer__row .field {
+  width: 8.5rem;
+}
+
 .composer__row input {
-  width: 7rem;
+  width: 100%;
 }
 
 .composer textarea,
@@ -553,7 +583,7 @@
   color: var(--muted);
 }
 
-.linkbutton:hover {
+.linkbutton:hover:not(:disabled) {
   background: none;
   color: var(--ink);
 }
@@ -604,10 +634,51 @@
   font-weight: 600;
 }
 
+.card__text {
+  margin-top: calc(var(--step) * 2.5);
+}
+
 .card__body {
-  margin: calc(var(--step) * 2.5) 0 0;
+  margin: 0;
+  /* Set explicitly: an ancestor may colour a rule through `color`. */
+  color: var(--ink);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/*
+ * A preview runs to the storage layer's field limit — around thirty lines,
+ * which is one post filling the screen. Clamped, the feed stays a feed.
+ */
+.card__body--clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 8;
+  line-clamp: 8;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+
+.card__text .linkbutton {
+  margin-top: var(--step);
+}
+
+/* A progress update says everything in its header. */
+.card--marker {
+  padding-top: calc(var(--step) * 2.5);
+  padding-bottom: calc(var(--step) * 2.5);
+}
+
+.card--marker .card__actions {
+  margin-top: var(--step);
+}
+
+.card__type {
+  padding: 0 calc(var(--step) * 1.25);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  opacity: 0.75;
 }
 
 .card__actions {
@@ -637,8 +708,8 @@
   filter: blur(5px);
   user-select: none;
   pointer-events: none;
-  background: var(--rule);
-  opacity: 0.55;
+  background: var(--wash);
+  opacity: 0.8;
   border-radius: var(--radius);
   padding: calc(var(--step) * 2);
   min-height: 3.5rem;
@@ -653,8 +724,24 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--step);
+  gap: calc(var(--step) * 1.5);
   text-align: center;
+}
+
+.blur__label {
+  color: var(--muted);
+}
+
+.blur__reveal {
+  background: var(--surface);
+  border-color: var(--rule);
+  font-size: 0.875rem;
+  padding: calc(var(--step) * 1) calc(var(--step) * 2.5);
+}
+
+.blur__reveal:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: var(--ink);
 }
 
 /* --- replies -------------------------------------------------------------- */
@@ -683,7 +770,7 @@
 .replies {
   margin: calc(var(--step) * 2) 0 0 calc(var(--step) * 2);
   padding-left: calc(var(--step) * 4);
-  border-left: 1px solid currentColor;
+  border-left: 1px solid var(--thread, var(--rule));
   display: flex;
   flex-direction: column;
   gap: calc(var(--step) * 3);
@@ -709,6 +796,9 @@
 .modal__backdrop {
   position: absolute;
   inset: 0;
+  /* `place-items: center` on the parent shrink-wraps an absolutely positioned
+     child even with `inset: 0`, which leaves a backdrop of zero size. */
+  place-self: stretch;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -717,7 +807,7 @@
   cursor: default;
 }
 
-.modal__backdrop:hover {
+.modal__backdrop:hover:not(:disabled) {
   background: var(--ink);
 }
 
@@ -774,24 +864,54 @@
 /* --- narrower than three columns ------------------------------------------ */
 
 /*
- * Below the width that fits three columns the rails go above the feed, side by
- * side, and the spine lies down: chapter one at the left, the end of the book
- * at the right. Same markup, same `--pos`, read along the other axis.
+ * Two columns rather than three: one rail beside the feed, holding all three
+ * panels. Rails split across the top instead leave a ragged, half-empty band
+ * above the feed, because the two of them are never the same height.
  */
 @media (max-width: 1200px) {
   .columns {
     grid-template-areas:
-      'left right'
-      'feed feed';
-    grid-template-columns: 1fr 1fr;
-    gap: calc(var(--step) * 4);
+      'left feed'
+      'right feed';
+    grid-template-columns: minmax(200px, var(--rail)) minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    gap: calc(var(--step) * 3) calc(var(--step) * 5);
     padding: calc(var(--step) * 5) calc(var(--step) * 5) calc(var(--step) * 16);
   }
 
   .rail {
     position: static;
-    max-height: none;
-    overflow: visible;
+  }
+
+  .column {
+    margin: 0;
+  }
+}
+
+/*
+ * Stacked. The spine lies down with it: chapter one at the left, the end of the
+ * book at the right. Same markup, same `--pos`, read along the other axis.
+ */
+@media (max-width: 760px) {
+  .columns {
+    grid-template-areas:
+      'left'
+      'right'
+      'feed';
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+
+  .column {
+    margin: 0 auto;
+  }
+
+  .topbar {
+    padding: 0 calc(var(--step) * 4);
+  }
+
+  .viewas__label {
+    display: none;
   }
 
   .chips {
@@ -805,20 +925,30 @@
 
   .spine__track {
     width: auto;
+    height: 26px;
+    margin: calc(var(--step) * 6) calc(var(--step) * 3) calc(var(--step) * 4);
+  }
+
+  .spine__track::before {
+    left: 0;
+    right: 0;
+    top: 50%;
+    bottom: auto;
+    width: auto;
     height: 2px;
-    margin: calc(var(--step) * 7) calc(var(--step) * 3) calc(var(--step) * 5);
+    transform: translateY(-50%);
   }
 
   .spine__track--estimated::after {
     left: auto;
     right: 0;
     bottom: auto;
-    top: -1px;
+    top: 50%;
     width: 18%;
-    height: 4px;
-    background: linear-gradient(to right, var(--rule) 0 2px, transparent 2px 6px);
+    height: 2px;
+    transform: translateY(-50%);
+    background: linear-gradient(to right, var(--field) 0 2px, transparent 2px 6px);
     background-size: 6px 2px;
-    background-position: 0 1px;
     background-repeat: repeat-x;
   }
 
@@ -840,8 +970,12 @@
   .spine__ahead {
     left: var(--pos);
     right: 0;
-    top: -13px;
-    bottom: -13px;
+    width: auto;
+    transform: none;
+    top: 50%;
+    height: 14px;
+    bottom: auto;
+    margin-top: -7px;
   }
 
   .spine__cap {
@@ -863,24 +997,6 @@
     flex-direction: row;
     flex-wrap: wrap;
     gap: calc(var(--step) * 2) calc(var(--step) * 5);
-  }
-}
-
-@media (max-width: 760px) {
-  .columns {
-    grid-template-areas:
-      'left'
-      'right'
-      'feed';
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .topbar {
-    padding: 0 calc(var(--step) * 4);
-  }
-
-  .viewas__label {
-    display: none;
   }
 }
 

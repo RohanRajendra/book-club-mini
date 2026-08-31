@@ -9,7 +9,8 @@
   --sunk: #dcdfd7; /* inset wells: inputs, chips at rest */
   --ink: #191c18; /* primary text */
   --muted: #6a7168; /* metadata */
-  --rule: #c2c7bc; /* hairlines, spine track, blur wash */
+  --rule: #c2c7bc; /* hairlines, spine track */
+  --wash: #d2d7cb; /* the blur wash, and the spine past your own tick */
   --on-ink: #f2f3ef; /* text on a filled --ink surface */
   --reader-a: #2c5f72; /* deep petrol */
   --reader-b: #7d2e46; /* deep plum */
@@ -31,7 +32,8 @@
   --sunk: #101310;
   --ink: #e6e9e1;
   --muted: #949c8f;
-  --rule: #333a30;
+  --rule: #3c4438;
+  --wash: #2c3329;
   --on-ink: #141713;
   --reader-a: #7cb9cf;
   --reader-b: #e0929f;

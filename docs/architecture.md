@@ -519,10 +519,19 @@ flowchart LR
     TB --> Cols
 ```
 
-Below 1200px the rails move above the feed side by side, and the spine lies
-down. Below 760px everything stacks. Orientation is the stylesheet's business:
-a tick's distance along the track is written as a `--pos` custom property, and
-the media query decides whether that is a distance down or across.
+Below 1200px it becomes two columns — one rail beside the feed holding all
+three panels. Splitting the rails across the top instead leaves a ragged,
+half-empty band above the feed, because the two are never the same height.
+Below 760px everything stacks and the spine lies down. Orientation is the
+stylesheet's business: a tick's distance along the track is written as a
+`--pos` custom property, and the media query decides whether that is a distance
+down or across.
+
+A post's preview runs to the storage layer's field limit — around thirty lines,
+which is one post filling the screen. The feed clamps a long body to eight and
+offers to open it. Whether opening costs a request depends on why it is long:
+`lib/truncation.js` separates a post whose remainder is in a body block from
+one that is merely long and already on the page.
 
 ### Components
 

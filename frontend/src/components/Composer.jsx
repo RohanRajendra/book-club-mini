@@ -30,27 +30,29 @@ export function Composer({ composer, onCancel, submitLabel = 'Post' }) {
         ))}
       </div>
 
+      {/* Labelled, not placeholdered: Thought and Question arrive prefilled
+          from your position, and a filled box with no label is a guess. */}
       <div className="composer__row">
-        <label className="sr-only" htmlFor="composer-chapter">
-          Chapter
+        <label className="field">
+          <span className="field__label mono muted">
+            Chapter{fields.type === 'Progress' ? '' : ', optional'}
+          </span>
+          <input
+            id="composer-chapter"
+            inputMode="numeric"
+            value={fields.chapter}
+            onChange={(event) => setField('chapter', event.target.value)}
+          />
         </label>
-        <input
-          id="composer-chapter"
-          inputMode="numeric"
-          placeholder={fields.type === 'Progress' ? 'Chapter' : 'Chapter, optional'}
-          value={fields.chapter}
-          onChange={(event) => setField('chapter', event.target.value)}
-        />
-        <label className="sr-only" htmlFor="composer-page">
-          Page, optional
+        <label className="field">
+          <span className="field__label mono muted">Page, optional</span>
+          <input
+            id="composer-page"
+            inputMode="numeric"
+            value={fields.page}
+            onChange={(event) => setField('page', event.target.value)}
+          />
         </label>
-        <input
-          id="composer-page"
-          inputMode="numeric"
-          placeholder="Page"
-          value={fields.page}
-          onChange={(event) => setField('page', event.target.value)}
-        />
       </div>
 
       <label className="sr-only" htmlFor="composer-body">
