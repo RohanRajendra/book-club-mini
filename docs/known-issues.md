@@ -156,12 +156,28 @@ Nine mutations, all killed. The survivor on the first pass was reading only
 `in_trash` and not the legacy `archived` — a spelling the write path handles and
 no test read back.
 
-### 8. An in-flight read repopulates the cache with pre-write data — **S**
+### 8. An in-flight read repopulated the cache with pre-write data — **fixed**
 
-`CachingFeedQuery` samples the clock before its `await` and stores after it. A
-read that began before a write lands after the invalidation and pins stale data
-for the full twenty seconds — exactly the failure the `on_commit` hook was built
-to prevent.
+`invalidate()` can only clear what is already in the map. A read still waiting
+on Notion has nothing there to clear, and stored its pre-write snapshot the
+moment it returned — exactly the staleness the `on_commit` hook exists to
+prevent, arriving through the one gap the hook cannot see.
+
+Closed with a generation counter. Every invalidation bumps it; a read carries
+the value it started with and stores its result only if that value still holds.
+The caller who asked still gets their answer — it was true when they asked —
+but it does not become everyone else's answer for the next twenty seconds.
+
+Six mutations, all killed. The survivor on the first pass was stamping the entry
+with the time the read *returned* rather than the time it began; the audit read
+that as part of the defect, and it is the opposite — a slow read expiring sooner
+is the safe way round. It is now a documented decision with a test, rather than
+an accident.
+
+This is the suite's first test that actually interleaves two operations. The
+audit's own note that there are no concurrency tests is what made the race
+invisible: everything else runs to completion between statements, so a write
+landing *during* a read was not a state any test could reach.
 
 ### 9. Position resolution picks the wrong post of a same-second tie — **S**
 
