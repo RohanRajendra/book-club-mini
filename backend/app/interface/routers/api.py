@@ -13,6 +13,7 @@ from app.application.use_cases.create_post import CreatePostCommand
 from app.application.use_cases.delete_post import DeletePostCommand
 from app.application.use_cases.edit_post import EditPostCommand
 from app.application.use_cases.get_feed import FeedQuery
+from app.application.use_cases.get_post_body import PostBodyQuery
 from app.composition import Container
 from app.domain.values import BookId, MemberName, PostId, PostType
 from app.interface.errors import raise_for
@@ -167,8 +168,23 @@ async def delete_post(post_id: str, container: Container = Depends(container_of)
 
 
 @router.get("/posts/{post_id}/body", response_model=BodyResponse)
-async def get_post_body(post_id: str, container: Container = Depends(container_of)):
-    body = unwrap(await container.get_post_body().execute(PostId(post_id)))
+async def get_post_body(
+    post_id: str,
+    reveal: bool = Query(default=False),
+    container: Container = Depends(container_of),
+):
+    """`reveal` carries the member's decision to read past their own position.
+
+    Without it a post ahead of them is withheld: the feed already flags it as a
+    spoiler, and blurring it in the browser while serving the text on request
+    would leave the rule to the client."""
+    body = unwrap(
+        await container.get_post_body().execute(
+            PostBodyQuery(
+                post_id=PostId(post_id), viewer=container.member, reveal=reveal
+            )
+        )
+    )
     return BodyResponse(body=body)
 
 

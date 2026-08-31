@@ -123,4 +123,6 @@ class Container:
         return DeletePost(self.uow_factory())
 
     def get_post_body(self) -> GetPostBody:
-        return GetPostBody(self.uow_factory())
+        return GetPostBody(
+            self.uow_factory(), self._spoiler_policy, PositionResolver()
+        )

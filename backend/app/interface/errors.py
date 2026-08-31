@@ -17,6 +17,7 @@ STATUS_BY_CODE: dict[str, int] = {
     errors.BookNotFound.code: 404,
     errors.PostNotFound.code: 404,
     errors.NotPostOwner.code: 403,
+    errors.SpoilerWithheld.code: 403,
     errors.CannotReplyToReply.code: 400,
     errors.ReplyBookMismatch.code: 400,
     errors.ChapterRequiredForProgress.code: 400,

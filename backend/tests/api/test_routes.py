@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import pytest
 
+from app.domain.values import Position, PostType
 from tests.api.conftest import BOOK
+from tests.builders import ADA, GRACE, make_post
 
 
 async def test_health_reports_both_data_source_ids(client, container):
@@ -448,3 +450,90 @@ class TestChapterBoundsOverHttp:
             "/api/books", json={"title": "Piranesi", "total_chapters": total}
         )
         assert response.status_code == 422
+
+
+class TestBodyEndpointWithholdsSpoilers:
+    async def _ahead_of_me(self, client):
+        """I am at chapter 4; a post lands at chapter 20 from the other member.
+
+        `as=` cannot change attribution, so the spoiler post is written by me
+        and then read back as Grace — the only way this installation can hold
+        a post it did not write.
+        """
+        await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Progress", "chapter": 4},
+        )
+        created = await client.post(
+            "/api/posts",
+            json={
+                "book_id": BOOK.value,
+                "type": "Thought",
+                "chapter": 20,
+                "body": "x" * 4000,
+            },
+        )
+        return created.json()["id"]
+
+    async def test_a_long_post_i_wrote_is_returned(self, client):
+        post_id = await self._ahead_of_me(client)
+        response = await client.get(f"/api/posts/{post_id}/body")
+        assert response.status_code == 200
+        assert len(response.json()["body"]) == 4000
+
+    async def test_revealing_returns_the_body(self, client):
+        post_id = await self._ahead_of_me(client)
+        response = await client.get(f"/api/posts/{post_id}/body?reveal=true")
+        assert response.status_code == 200
+
+    async def test_an_unknown_post_is_still_a_404(self, client):
+        response = await client.get("/api/posts/nope/body")
+        assert response.status_code == 404
+
+    # The routes above can only produce posts written by this installation, and
+    # your own post is never a spoiler to you. Reaching the withheld case means
+    # seeding the other member's post through the same adapters the app uses.
+    @pytest.fixture
+    async def graces_spoiler(self, seeded):
+        uow = seeded()
+        async with uow:
+            await uow.posts.add(
+                make_post(
+                    id=None,
+                    book_id=BOOK,
+                    member=ADA,
+                    type=PostType.PROGRESS,
+                    position=Position(4),
+                )
+            )
+            post = await uow.posts.add(
+                make_post(
+                    id=None,
+                    book_id=BOOK,
+                    member=GRACE,
+                    position=Position(40),
+                    body_preview="He dies in chapter 40." + "x" * 1800,
+                    has_full_body=True,
+                ),
+                "He dies in chapter 40." + "x" * 3000,
+            )
+            await uow.commit()
+        return post
+
+    async def test_a_spoiler_body_is_withheld_with_403(self, client, graces_spoiler):
+        response = await client.get(f"/api/posts/{graces_spoiler.id.value}/body")
+        assert response.status_code == 403
+        assert response.json() == {"error": "That post is ahead of where you are."}
+
+    async def test_the_withheld_response_carries_none_of_the_text(
+        self, client, graces_spoiler
+    ):
+        response = await client.get(f"/api/posts/{graces_spoiler.id.value}/body")
+        assert "dies" not in response.text
+
+    async def test_revealing_a_spoiler_returns_it(self, client, graces_spoiler):
+        response = await client.get(
+            f"/api/posts/{graces_spoiler.id.value}/body?reveal=true"
+        )
+        assert response.status_code == 200
+        assert response.json()["body"].startswith("He dies in chapter 40.")

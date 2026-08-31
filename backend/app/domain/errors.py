@@ -76,6 +76,11 @@ class TotalChaptersBelowPosts(DomainError):
 
 
 @dataclass(frozen=True)
+class SpoilerWithheld(DomainError):
+    code: ClassVar[str] = "spoiler_withheld"
+
+
+@dataclass(frozen=True)
 class BodyRequired(DomainError):
     code: ClassVar[str] = "body_required"
 

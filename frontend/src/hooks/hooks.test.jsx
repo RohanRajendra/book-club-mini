@@ -448,6 +448,62 @@ describe('useReveal', () => {
     expect(result.current.bodyFor(long)).toBe(long.body_preview)
   })
 
+  // The server withholds a body ahead of the viewer unless told otherwise, so
+  // the decision has to travel with the request or Read anyway then Read more
+  // fails on exactly the posts the feature exists for.
+  it('asks for a revealed spoiler with reveal=true', async () => {
+    const seen = []
+    server.use(
+      http.get('/api/posts/p1/body', ({ request }) => {
+        seen.push(new URL(request.url).searchParams.get('reveal'))
+        return HttpResponse.json({ body: 'The whole thing.' })
+      }),
+    )
+    const { result } = renderHook(() => useReveal())
+    const spoiler = { id: 'p1', has_full_body: true, is_spoiler: true }
+
+    act(() => result.current.reveal('p1'))
+    await act(async () => {
+      await result.current.expand(spoiler)
+    })
+
+    expect(seen).toEqual(['true'])
+  })
+
+  it('does not ask to reveal a post that is not a spoiler', async () => {
+    const seen = []
+    server.use(
+      http.get('/api/posts/p1/body', ({ request }) => {
+        seen.push(new URL(request.url).searchParams.get('reveal'))
+        return HttpResponse.json({ body: 'The whole thing.' })
+      }),
+    )
+    const { result } = renderHook(() => useReveal())
+
+    await act(async () => {
+      await result.current.expand({ id: 'p1', has_full_body: true, is_spoiler: false })
+    })
+
+    expect(seen).toEqual([null])
+  })
+
+  it('does not ask to reveal a spoiler the member has not revealed', async () => {
+    const seen = []
+    server.use(
+      http.get('/api/posts/p1/body', ({ request }) => {
+        seen.push(new URL(request.url).searchParams.get('reveal'))
+        return HttpResponse.json({ body: 'The whole thing.' })
+      }),
+    )
+    const { result } = renderHook(() => useReveal())
+
+    await act(async () => {
+      await result.current.expand({ id: 'p1', has_full_body: true, is_spoiler: true })
+    })
+
+    expect(seen).toEqual([null])
+  })
+
   it('collapses back to the preview', async () => {
     server.use(http.get('/api/posts/p1/body', () => HttpResponse.json({ body: 'The whole thing.' })))
     const { result } = renderHook(() => useReveal())

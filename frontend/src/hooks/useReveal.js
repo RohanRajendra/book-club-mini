@@ -25,15 +25,23 @@ export function useReveal() {
    * remainder elsewhere and has to be fetched. A merely long one is already on
    * the page, and opening it should not cost a request.
    */
-  const expand = useCallback(async (post) => {
-    if (!needsFetch(post)) {
-      setBodies((current) => ({ ...current, [post.id]: post.body_preview }))
-      return post.body_preview
-    }
-    const { body } = await api.postBody(post.id)
-    setBodies((current) => ({ ...current, [post.id]: body }))
-    return body
-  }, [])
+  const expand = useCallback(
+    async (post) => {
+      if (!needsFetch(post)) {
+        setBodies((current) => ({ ...current, [post.id]: post.body_preview }))
+        return post.body_preview
+      }
+      // The server withholds a body that is ahead of you unless told the
+      // member chose to read it. Reaching Read more on a spoiler means Read
+      // anyway was pressed first, so that decision is what gets sent.
+      const { body } = await api.postBody(post.id, {
+        reveal: post.is_spoiler && revealed.has(post.id),
+      })
+      setBodies((current) => ({ ...current, [post.id]: body }))
+      return body
+    },
+    [revealed],
+  )
 
   /** Back to the preview. The fetched body is dropped, not cached. */
   const collapse = useCallback((postId) => {

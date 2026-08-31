@@ -50,12 +50,29 @@ Closed by enforcing `Book.contains_chapter` on create and edit, refusing to
 shorten a book below its posts, and adding sanity ceilings at the HTTP
 boundary.
 
-### 3. `GET /api/posts/{id}/body` has no viewer and no spoiler check — **S**
+### 3. The body endpoint had no viewer and no spoiler check — **fixed**
 
-`GetPostBody.execute` takes only a `PostId`. The full body of a post that is
-blurred for you is one request away. The documented limitation covers the
-1,900-character preview travelling to the browser; it does not cover handing
-over the whole 200,000-character body on request.
+`GetPostBody.execute` took only a `PostId`, so the full body of a post blurred
+for you was one request away. The documented limitation covers the
+1,900-character preview travelling to the browser; it did not cover handing over
+the whole 200,000-character body on request.
+
+Closed by giving the use case the viewer and the spoiler policy. A body ahead of
+you is withheld with `403` unless the request carries `reveal=true`, which is
+the member's *Read anyway* decision travelling to the server. Like the ownership
+checks, this prevents an accident rather than an attack — both members are
+trusted and either could pass the flag. What it stops is a body arriving that
+nobody asked to see.
+
+The check costs one extra query, and only on the path that was already making
+two. It is skipped once the post has been revealed, which is the common case for
+a long one.
+
+Known wrinkle, deliberately left: the **View as** diagnostic changes the feed's
+spoiler flags but not this endpoint, which always uses the installation's own
+member. The mismatch is in the permissive direction — a post shown blurred under
+*View as* may still return its body — and *View as* is a diagnostic, not a
+second identity.
 
 ### 4. Blank path parameters return 500 instead of 400 — **S**
 

@@ -19,6 +19,7 @@ def test_the_expected_failures_are_all_present():
         "BookNotFound",
         "PostNotFound",
         "NotPostOwner",
+        "SpoilerWithheld",
         "CannotReplyToReply",
         "ReplyBookMismatch",
         "ChapterRequiredForProgress",

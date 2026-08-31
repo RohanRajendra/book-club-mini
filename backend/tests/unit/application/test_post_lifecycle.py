@@ -7,14 +7,19 @@ import pytest
 from app.adapters.memory import InMemoryUnitOfWork
 from app.application.use_cases.delete_post import DeletePost, DeletePostCommand
 from app.application.use_cases.edit_post import EditPost, EditPostCommand
-from app.application.use_cases.get_post_body import GetPostBody
+from app.application.use_cases.get_post_body import GetPostBody, PostBodyQuery
 from app.domain import errors
 from app.domain.entities import Book
+from app.domain.policies import ChapterFirstSpoilerPolicy
 from app.domain.services import PositionResolver
 from app.domain.values import BookId, Position, PostId, PostType
 from tests.builders import ADA, GRACE, at_minute, long_body, make_post, make_reply
 
 BOOK = BookId("book-1")
+
+
+def body_query(post_id, viewer=ADA, reveal=False) -> PostBodyQuery:
+    return PostBodyQuery(post_id=post_id, viewer=viewer, reveal=reveal)
 
 
 @pytest.fixture
@@ -295,7 +300,11 @@ class TestDeletePost:
 class TestGetPostBody:
     @pytest.fixture
     def get_body(self, seeded):
-        return GetPostBody(uow_factory=lambda: seeded)
+        return GetPostBody(
+            uow_factory=lambda: seeded,
+            spoiler_policy=ChapterFirstSpoilerPolicy(),
+            position_resolver=PositionResolver(),
+        )
 
     async def test_returns_the_preview_when_the_post_has_no_full_body(
         self, get_body, seeded
@@ -305,7 +314,7 @@ class TestGetPostBody:
                 make_post(id=None, book_id=BOOK, body_preview="Short.")
             )
             await seeded.commit()
-        assert (await get_body.execute(post.id)).unwrap() == "Short."
+        assert (await get_body.execute(body_query(post.id))).unwrap() == "Short."
 
     async def test_fetches_the_full_body_when_has_full_body_is_true(
         self, get_body, seeded
@@ -322,7 +331,7 @@ class TestGetPostBody:
                 body,
             )
             await seeded.commit()
-        assert (await get_body.execute(post.id)).unwrap() == body
+        assert (await get_body.execute(body_query(post.id))).unwrap() == body
 
     async def test_does_not_call_get_full_body_when_has_full_body_is_false(
         self, get_body, seeded
@@ -337,12 +346,12 @@ class TestGetPostBody:
             await seeded.commit()
         seeded.posts.calls.clear()
 
-        await get_body.execute(post.id)
+        await get_body.execute(body_query(post.id))
 
         assert not [call for call in seeded.posts.calls if call[0] == "get_full_body"]
 
     async def test_missing_post_returns_post_not_found(self, get_body):
-        result = await get_body.execute(PostId("nope"))
+        result = await get_body.execute(body_query(PostId("nope")))
         assert isinstance(result.unwrap_err(), errors.PostNotFound)
 
 
@@ -418,3 +427,119 @@ class TestEditPostChapterBounds:
             EditPostCommand(post_id=post.id, member=ADA, body="Revised.", chapter=3)
         )
         assert isinstance(result.unwrap_err(), errors.BookNotFound)
+
+
+class TestGetPostBodyWithholdsSpoilers:
+    """The feed flags a spoiler and the client blurs it. Before this, the body
+    endpoint handed over the whole text to anyone who asked by id, so the app's
+    central feature was a client-side visual effect."""
+
+    @pytest.fixture
+    def get_body(self, seeded):
+        return GetPostBody(
+            uow_factory=lambda: seeded,
+            spoiler_policy=ChapterFirstSpoilerPolicy(),
+            position_resolver=PositionResolver(),
+        )
+
+    @pytest.fixture
+    async def ahead(self, seeded):
+        """Grace posts at chapter 40; Ada is at chapter 4."""
+        async with seeded:
+            await seeded.posts.add(
+                make_post(
+                    id=None,
+                    book_id=BOOK,
+                    member=ADA,
+                    type=PostType.PROGRESS,
+                    position=Position(4),
+                    created_at=at_minute(0),
+                )
+            )
+            post = await seeded.posts.add(
+                make_post(
+                    id=None,
+                    book_id=BOOK,
+                    member=GRACE,
+                    body_preview="He dies in chapter 40.",
+                    position=Position(40),
+                )
+            )
+            await seeded.commit()
+        return post
+
+    async def test_a_post_ahead_of_the_viewer_is_withheld(self, get_body, ahead):
+        result = await get_body.execute(body_query(ahead.id))
+        assert isinstance(result.unwrap_err(), errors.SpoilerWithheld)
+
+    async def test_the_text_is_not_in_the_error(self, get_body, ahead):
+        message = (await get_body.execute(body_query(ahead.id))).unwrap_err().message
+        assert "chapter 40" not in message
+        assert "dies" not in message
+
+    async def test_revealing_it_returns_the_body(self, get_body, ahead):
+        """Read anyway is a deliberate choice, and the server has to be told."""
+        result = await get_body.execute(body_query(ahead.id, reveal=True))
+        assert result.unwrap() == "He dies in chapter 40."
+
+    async def test_the_member_who_wrote_it_always_gets_it(self, get_body, ahead):
+        result = await get_body.execute(body_query(ahead.id, viewer=GRACE))
+        assert result.unwrap() == "He dies in chapter 40."
+
+    async def test_a_post_behind_the_viewer_is_returned(self, get_body, seeded):
+        async with seeded:
+            await seeded.posts.add(
+                make_post(
+                    id=None,
+                    book_id=BOOK,
+                    member=ADA,
+                    type=PostType.PROGRESS,
+                    position=Position(40),
+                    created_at=at_minute(0),
+                )
+            )
+            post = await seeded.posts.add(
+                make_post(
+                    id=None,
+                    book_id=BOOK,
+                    member=GRACE,
+                    body_preview="Chapter four was slow.",
+                    position=Position(4),
+                )
+            )
+            await seeded.commit()
+
+        assert (await get_body.execute(body_query(post.id))).unwrap() == (
+            "Chapter four was slow."
+        )
+
+    async def test_a_viewer_with_no_position_sees_everything(self, get_body, seeded):
+        """Matches the feed: someone who has not said where they are cannot be
+        spoiled by a rule that has nothing to compare against."""
+        async with seeded:
+            post = await seeded.posts.add(
+                make_post(
+                    id=None,
+                    book_id=BOOK,
+                    member=GRACE,
+                    body_preview="He dies in chapter 40.",
+                    position=Position(40),
+                )
+            )
+            await seeded.commit()
+
+        assert (await get_body.execute(body_query(post.id))).unwrap() == (
+            "He dies in chapter 40."
+        )
+
+    async def test_revealing_costs_no_extra_query(self, get_body, ahead, seeded):
+        """The spoiler check reads the book's posts. Once the member has
+        revealed the post that work is pointless, so it is skipped."""
+        seeded.posts.calls.clear()
+        await get_body.execute(body_query(ahead.id, reveal=True))
+        assert "list_for_book" not in [name for name, _ in seeded.posts.calls]
+
+    async def test_withholding_does_read_the_posts(self, get_body, ahead, seeded):
+        seeded.posts.calls.clear()
+        await get_body.execute(body_query(ahead.id))
+        assert "list_for_book" in [name for name, _ in seeded.posts.calls]
