@@ -60,5 +60,10 @@ class TestNotionUnitOfWork(UnitOfWorkContract):
         return build_uow(stub)
 
     @pytest.fixture
+    def tied_uow(self, stub):
+        stub.hold_clock()
+        return build_uow(stub)
+
+    @pytest.fixture
     def uow_factory(self, stub):
         return lambda: build_uow(stub)

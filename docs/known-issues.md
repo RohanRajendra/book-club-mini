@@ -179,12 +179,36 @@ audit's own note that there are no concurrency tests is what made the race
 invisible: everything else runs to completion between statements, so a write
 landing *during* a read was not a state any test could reach.
 
-### 9. Position resolution picks the wrong post of a same-second tie — **S**
+### 9. Position resolution picked the wrong post of a tie — **fixed**
 
-`>=` keeps the last post seen, and `list_for_book` is contractually newest-first,
-so a tie resolves to the older post. Notion timestamps have second resolution,
-so correcting a mistyped chapter within the same second keeps the mistake — the
-precise workflow the resolver was written to protect.
+`>=` kept the last post seen, and `list_for_book` is contractually newest-first,
+so a tie resolved to the *older* post: correcting a mistyped chapter kept the
+mistake, which is the precise workflow the resolver was written to protect.
+
+The audit called these same-*second* ties and treated them as a narrow race.
+A read-only probe of the live workspace says otherwise: **Notion truncates
+`created_time` to the minute.** All sixteen pages report `:00.000Z`. Two
+progress posts in the same minute tie, so this is the ordinary case. The
+workspace already contains one — `Ch 40` and `Ch 4`, both stamped `04:26`, which
+is the 40-for-4 mistype the resolver's docstring describes.
+
+Closed by taking the *first* matching post rather than the last, and by making
+both stores order a tie newest-first so that "first" means what the contract
+says. The in-memory store now sorts on `(created_at, insertion order)`
+descending; a plain stable sort resolved a tie to creation order, which is
+backwards. The Notion stub had the same flaw and now models what was measured.
+
+Whether the fix reaches production turns entirely on Notion's own tie order, so
+that was measured rather than assumed. Under a descending `created_time` sort a
+tied pair comes back **newest first**, proved by a causally-ordered pair: a
+reply, which cannot predate its parent, is listed before it. The order is also
+stable across repeated identical queries.
+
+Six mutations, all killed. One existing test asserted the defect — "last in
+input order wins, deterministically" — the third instance of that pattern in
+this audit. The test directly below it already said the resolver "must not take
+the last one it happens to walk past", but only ever checked it with distinct
+timestamps, where the rule makes no difference.
 
 ### 10. Pagination cap crossed with the delete cascade — **M**
 

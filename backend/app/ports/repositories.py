@@ -42,7 +42,15 @@ class PostRepository(ABC):
     @abstractmethod
     async def list_for_book(self, book_id: BookId) -> list[Post]:
         """Every unarchived post for the book, top-level and replies together,
-        newest first."""
+        newest first.
+
+        Newest-first holds *within* a tie as well as across one. Notion
+        truncates `created_time` to the minute, so two posts a moment apart
+        share a timestamp routinely, and `PositionResolver` breaks that tie by
+        taking the first post listed. A store whose tie order is the creation
+        order reversed makes a member's mistyped chapter outlive their
+        correction.
+        """
 
     @abstractmethod
     async def get(self, post_id: PostId) -> Post | None:

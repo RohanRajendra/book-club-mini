@@ -18,7 +18,15 @@ import pytest
 from app.adapters.memory import InMemoryUnitOfWork, in_memory_uow_factory
 from app.domain.entities import Book, Post
 from app.domain.values import BookId, BookStatus, Position, PostId, PostType
-from tests.builders import ADA, GRACE, long_body, make_book, make_post, make_reply
+from tests.builders import (
+    ADA,
+    EPOCH,
+    GRACE,
+    long_body,
+    make_book,
+    make_post,
+    make_reply,
+)
 
 NO_TRANSACTIONS = (
     "Notion has no transactions; rollback is compensating and is covered by "
@@ -39,6 +47,17 @@ class UnitOfWorkContract:
 
     @pytest.fixture
     def uow_factory(self):
+        raise NotImplementedError
+
+    @pytest.fixture
+    def tied_uow(self):
+        """A unit of work that stamps everything added through it with the same
+        `created_at`.
+
+        Timestamps are store-assigned, so only an adapter can arrange a tie —
+        and a tie is ordinary rather than exotic, because Notion truncates
+        `created_time` to the minute.
+        """
         raise NotImplementedError
 
     # ---------------------------------------------------------------- books
@@ -156,6 +175,21 @@ class UnitOfWorkContract:
             assert (await uow.posts.get(stored.id)).is_deleted is False
             listed = await uow.posts.list_for_book(stored.book_id)
             assert [post.is_deleted for post in listed] == [False]
+
+    async def test_posts_sharing_a_created_at_are_listed_newest_first(
+        self, tied_uow
+    ):
+        """`PositionResolver` breaks a tie by taking the first post listed, so
+        which one that is belongs to the contract rather than to an adapter's
+        sort implementation. Backwards, and a member who corrects a mistyped
+        chapter keeps the mistake."""
+        async with tied_uow:
+            first = await tied_uow.posts.add(make_post(id=None, created_at=None))
+            second = await tied_uow.posts.add(make_post(id=None, created_at=None))
+            assert first.created_at == second.created_at
+
+            listed = await tied_uow.posts.list_for_book(first.book_id)
+            assert [post.id for post in listed] == [second.id, first.id]
 
     async def test_reply_is_listed_alongside_top_level_posts(self, uow):
         async with uow:
@@ -362,6 +396,10 @@ class TestInMemoryUnitOfWork(UnitOfWorkContract):
     @pytest.fixture
     def uow(self):
         return InMemoryUnitOfWork()
+
+    @pytest.fixture
+    def tied_uow(self):
+        return InMemoryUnitOfWork(clock=lambda: EPOCH)
 
     @pytest.fixture
     def uow_factory(self):

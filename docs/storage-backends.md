@@ -62,7 +62,7 @@ documents or dictionaries. Storage-specific shapes must stop at your mapper.
 | `books.get` | `None` for an unknown identifier, not an exception |
 | `books.add` | Assign an identifier; return the stored entity |
 | `books.update` | Fail loudly on an unknown identifier |
-| `list_for_book` | Unarchived posts only, top-level and replies together, newest first |
+| `list_for_book` | Unarchived posts only, top-level and replies together, newest first — inside a tie too |
 | `posts.get` | Returns archived posts too, with `is_deleted` set |
 | `posts.add` | Assign identifier and timestamps; return the stored entity |
 | `posts.update` | Preserve `created_at`; refresh `edited_at` |
@@ -75,6 +75,13 @@ Two are easy to get wrong:
   while `get` still returns them — *and says so*, by setting `is_deleted` on
   what it returns. Returning an archived post that looks live is how a deleted
   post stays editable; the flag is what the use cases read.
+- **Newest-first has to hold inside a tie.** Notion truncates `created_time`
+  to the minute, so posts a moment apart share a timestamp as a matter of
+  course, and `PositionResolver` breaks the tie by taking the first post
+  listed. Sorting on the timestamp alone is not enough: a stable sort keeps
+  creation order among equal keys, which is oldest-first — exactly backwards.
+  Order by `(created_at, creation_sequence)` descending. A store with a
+  monotonic key (a serial id, an insertion index) already has what it needs.
 - **`add` and `update` take `full_body` as a separate parameter.** The entity
   carries only the preview and a flag. Storing the full body on the entity would
   defeat the mechanism that keeps feed rendering from loading every body.
@@ -400,6 +407,7 @@ Also revisit, since each exists to work around a Notion constraint:
 - [ ] `__aexit__` rolls back on exception and does not auto-commit
 - [ ] `archive` soft-deletes; `get` still returns archived records, flagged `is_deleted`
 - [ ] `list_for_book` does not load full bodies
+- [ ] Two posts sharing a `created_at` list newest-first, not creation order
 - [ ] Container startup fails fast on an unreachable store
 - [ ] Configuration and `.env.example` updated
 - [ ] Coverage thresholds still met

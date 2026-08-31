@@ -87,12 +87,17 @@ class InMemoryPostRepository(PostRepository):
 
     async def list_for_book(self, book_id: BookId) -> list[Post]:
         self._state.calls.append(("list_for_book", book_id.value))
+        # Insertion order stands in for creation order and breaks a tie, which
+        # a plain sort on created_at would resolve the wrong way round: two
+        # posts can share a timestamp, and newest-first has to hold inside a
+        # tie as well as across one.
         posts = [
-            post
-            for post in self._state.posts.values()
+            (index, post)
+            for index, post in enumerate(self._state.posts.values())
             if post.book_id == book_id and post.id.value not in self._state.archived
         ]
-        return sorted(posts, key=lambda post: post.created_at, reverse=True)
+        posts.sort(key=lambda pair: (pair[1].created_at, pair[0]), reverse=True)
+        return [self._flagged(post) for _, post in posts]
 
     def _flagged(self, post: Post) -> Post:
         """The archived set is what says a post is deleted, not the stored

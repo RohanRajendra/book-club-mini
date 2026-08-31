@@ -56,6 +56,18 @@ class TestPositionResolver:
         posts = [progress(ADA, 40, minutes=1), progress(ADA, 4, minutes=2)]
         assert self.resolve(posts) == {ADA: Position(4)}
 
+    def test_a_tie_resolves_to_the_post_listed_first(self):
+        """Notion truncates `created_time` to the *minute* — verified against a
+        live workspace, where every page reports `:00.000Z`. So a correction
+        posted seconds after a mistake ties with it, and this is the ordinary
+        case rather than an exotic one.
+
+        `list_for_book` is newest-first, ties included, so the first of a tied
+        pair is the correction. Keeping the last one kept the mistake — the
+        precise workflow the resolver was written to protect."""
+        posts = [progress(ADA, 4, minutes=0), progress(ADA, 40, minutes=0)]
+        assert self.resolve(posts) == {ADA: Position(4)}
+
     def test_resolver_ignores_thoughts_and_questions(self):
         posts = [
             progress(ADA, 4, minutes=1),
@@ -82,11 +94,17 @@ class TestPositionResolver:
         assert self.resolve(posts) == {ADA: Position(4)}
 
     def test_resolver_handles_two_progress_posts_with_identical_timestamps(self):
-        """Notion timestamps have second resolution, so a tie is reachable.
-        Last in input order wins, deterministically."""
+        """First in input order wins, deterministically.
+
+        This test previously asserted the opposite, on the reasoning that a tie
+        is arbitrary so any deterministic answer would do. It is not arbitrary:
+        input arrives newest-first, so taking the last one takes the oldest —
+        and the test below already says the resolver "must not take the last
+        one it happens to walk past". It only ever checked that with distinct
+        timestamps, where the rule makes no difference."""
         first, second = progress(ADA, 7), progress(ADA, 8)
-        assert self.resolve([first, second]) == {ADA: Position(8)}
-        assert self.resolve([second, first]) == {ADA: Position(7)}
+        assert self.resolve([first, second]) == {ADA: Position(7)}
+        assert self.resolve([second, first]) == {ADA: Position(8)}
 
     def test_resolver_is_independent_of_input_order(self):
         """The feed query sorts created_time descending, so the resolver

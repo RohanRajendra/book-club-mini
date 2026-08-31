@@ -39,16 +39,23 @@ class PositionResolver:
         A member who mistypes chapter 40 for chapter 4 fixes it by posting
         again; highest-wins would strand them for the rest of the book.
 
-        Notion timestamps have second resolution, so two progress posts can tie.
-        On a tie the last one in input order wins — arbitrary, but deterministic,
-        which is what stops the tests turning flaky.
+        Ties are ordinary here, not exotic. Notion truncates `created_time` to
+        the **minute** — every page in a live workspace reports `:00.000Z` — so
+        a correction posted seconds after the mistake carries the same
+        timestamp. Correcting a chapter within a minute is precisely the
+        workflow this exists for, which makes the tie-break load-bearing.
+
+        With the timestamps equal there is no signal left but input order, and
+        `list_for_book` is contractually newest-first, ties included. So the
+        **first** matching post wins. Keeping the last one meant keeping the
+        mistake.
         """
         latest: dict[MemberName, Post] = {}
         for post in posts:
             if post.type is not PostType.PROGRESS or post.created_at is None:
                 continue
             current = latest.get(post.member)
-            if current is None or post.created_at >= current.created_at:
+            if current is None or post.created_at > current.created_at:
                 latest[post.member] = post
         return {
             member: post.position
