@@ -97,12 +97,22 @@ not. Both are pinned.
 
 ## Tier 2 — wrong output, recoverable
 
-### 5. A 200,000-character post can be previewed as one character — **S**
+### 5. A 200,000-character post could be previewed as one character — **fixed**
 
-`BodySplitter` takes the *last* space in the first 1,900 characters as the cut
-point. A body of `"I "` followed by five thousand non-spaces previews as `I`.
-Any space-sparse text hits this — a long URL after a one-word lead-in, base64,
-CJK. Newlines are not treated as word boundaries.
+`BodySplitter` took the *last* space in the first 1,900 characters as the cut
+point. A body of `"I "` followed by five thousand non-spaces previewed as `I`.
+Any space-sparse text hit this — a long URL after a one-word lead-in, base64,
+CJK — and newlines were not treated as word boundaries at all.
+
+Closed by making the word boundary a preference rather than a rule. The cut
+looks for the last *whitespace*, not the last space, and is only taken when it
+leaves at least four fifths of the budget (`MIN_PREVIEW`). A trailing token up
+to 380 characters is still dropped whole; anything longer is split mid-word,
+because a clean cut is worth a few characters and not a thousand.
+
+Seven mutations, all killed. The one that survived the first pass — dropping
+`rstrip()` — showed that no test put a *run* of whitespace at the cut, only a
+single space.
 
 ### 6. `type=Progress` with a `parent_post_id` bypasses "body required" — **S**
 

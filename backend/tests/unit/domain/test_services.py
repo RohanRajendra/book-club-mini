@@ -5,6 +5,7 @@ import pytest
 from app.domain.entities import Post
 from app.domain.services import (
     MAX_BODY,
+    MIN_PREVIEW,
     MIN_SCALE,
     BodySplitter,
     PositionResolver,
@@ -137,6 +138,52 @@ class TestBodySplitter:
         assert len(preview) == 1900
         assert has_full
         assert full == "x" * 5000
+
+    def test_space_sparse_body_is_not_cut_back_to_its_one_early_space(self):
+        """The reported shape: a one-word lead-in and then an unbroken run.
+
+        Honouring the only word boundary would preview a 5000-character post as
+        the single character `I`."""
+        preview, _, _ = self.split("I " + "x" * 5000)
+        assert len(preview) >= 1520
+
+    def test_a_newline_counts_as_a_word_boundary(self):
+        """Prose that breaks by line rather than by space still cuts cleanly."""
+        preview, _, _ = self.split("word\n" * 1000)
+        assert not preview.endswith("wor")
+        assert preview == preview.rstrip()
+
+    def test_a_boundary_that_keeps_most_of_the_budget_is_honoured(self):
+        """A long token at the end is dropped, not sliced, while it is cheap to
+        do so."""
+        body = "word " * 340 + "u" * 200 + " tail"
+        preview, _, _ = self.split(body)
+        assert preview.endswith("word")
+        assert len(preview) >= 1520
+
+    def test_a_run_of_whitespace_at_the_cut_is_not_left_dangling(self):
+        """The boundary match lands on the last whitespace of a run, so the
+        rest of the run is still on the end of the preview until it is
+        stripped."""
+        preview, _, _ = self.split("word  " * 400)
+        assert preview.endswith("word")
+        assert preview == preview.rstrip()
+
+    def test_a_boundary_at_exactly_the_floor_is_honoured(self):
+        """The threshold is inclusive: a preview of exactly MIN_PREVIEW is
+        long enough."""
+        preview, _, _ = self.split("w" * MIN_PREVIEW + " " + "x" * 1000)
+        assert preview == "w" * MIN_PREVIEW
+
+    def test_a_boundary_one_character_below_the_floor_is_ignored(self):
+        preview, _, _ = self.split("w" * (MIN_PREVIEW - 1) + " " + "x" * 1000)
+        assert len(preview) == 1900
+
+    def test_a_boundary_that_would_discard_most_of_the_budget_is_ignored(self):
+        """One space at 100 characters in, then an unbroken run: cutting there
+        would throw away 95% of the preview, so the limit wins."""
+        preview, _, _ = self.split("w" * 100 + " " + "x" * 5000)
+        assert len(preview) == 1900
 
     def test_long_body_full_text_is_returned_complete_including_the_preview_portion(
         self,

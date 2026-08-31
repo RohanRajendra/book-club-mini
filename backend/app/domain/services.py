@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 
 from app.domain.entities import PREVIEW_LIMIT, Post
 from app.domain.values import MemberName, Position, PostType
@@ -16,6 +17,17 @@ MIN_SCALE = 10
 
 #: Inferred scales get 20% headroom so the newest tick is not pinned to the edge.
 HEADROOM = 1.2
+
+#: The shortest preview a word boundary may leave behind. Below this the text
+#: is space-sparse — a URL after a one-word lead-in, base64, unspaced CJK — and
+#: honouring the boundary would discard most of the preview to save one
+#: mid-word cut. Four fifths of the budget: a trailing token up to 380
+#: characters is still dropped whole.
+MIN_PREVIEW = PREVIEW_LIMIT * 4 // 5
+
+#: The last run of whitespace in a string, wherever it falls. `rfind(" ")`
+#: would miss a body that breaks by line rather than by space.
+_LAST_BOUNDARY = re.compile(r"\s\S*\Z")
 
 
 class PositionResolver:
@@ -56,6 +68,9 @@ class BodySplitter:
         intentional: storing only the remainder in the block would mean
         reassembling a body from two sources on every edit, which is exactly
         how posts get corrupted.
+
+        The cut prefers a word boundary, but not at any price: see
+        `MIN_PREVIEW`.
         """
         if len(body) > MAX_BODY:
             raise ValueError(
@@ -65,9 +80,15 @@ class BodySplitter:
             return body, False, None
 
         head = body[:PREVIEW_LIMIT]
-        cut = head.rfind(" ")
-        preview = head[:cut].rstrip() if cut > 0 else head
-        return preview, True, body
+        boundary = _LAST_BOUNDARY.search(head)
+        if boundary is not None:
+            preview = head[: boundary.start()].rstrip()
+            if len(preview) >= MIN_PREVIEW:
+                return preview, True, body
+        # No boundary, or one so early that respecting it would throw most of
+        # the preview away. A clean cut is worth a few characters, not a
+        # thousand, so the limit wins and the word is split.
+        return head, True, body
 
 
 class ScaleCalculator:
