@@ -192,6 +192,27 @@ class TestReplies:
         result = await create.execute(command(parent_post_id=parent.id, body=""))
         assert isinstance(result.unwrap_err(), errors.BodyRequired)
 
+    async def test_empty_reply_requested_as_progress_still_needs_a_body(
+        self, create, parent
+    ):
+        """A parent makes the post a reply whatever type was asked for, so the
+        body rule has to key off the type the post will have. Keying off the
+        requested type let an empty reply through: Progress is exempt from the
+        body rule, and the type was rewritten to Reply afterwards."""
+        result = await create.execute(
+            command(type=PostType.PROGRESS, parent_post_id=parent.id, body="   ")
+        )
+        assert isinstance(result.unwrap_err(), errors.BodyRequired)
+
+    async def test_reply_requested_as_progress_is_accepted_with_a_body(
+        self, create, parent
+    ):
+        """The coercion itself is intended and stays: the parent wins."""
+        result = await create.execute(
+            command(type=PostType.PROGRESS, parent_post_id=parent.id, body="Agreed.")
+        )
+        assert result.unwrap().type is PostType.REPLY
+
     async def test_reply_to_a_parent_with_no_position_has_no_position(
         self, create, seeded
     ):

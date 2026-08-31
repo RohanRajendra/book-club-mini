@@ -114,12 +114,20 @@ Seven mutations, all killed. The one that survived the first pass — dropping
 `rstrip()` — showed that no test put a *run* of whitespace at the cut, only a
 single space.
 
-### 6. `type=Progress` with a `parent_post_id` bypasses "body required" — **S**
+### 6. `type=Progress` with a `parent_post_id` bypassed "body required" — **fixed**
 
-`CreatePost` checks the requested type, but the effective type is overwritten to
-`Reply` afterwards, so the check is skipped and an empty reply is stored.
-`EditPost` keys off the stored type and does not have the hole, so the two use
-cases disagree about one rule.
+`CreatePost` checked the *requested* type, but the effective type was
+overwritten to `Reply` further down, after the check. Progress is the one type
+exempt from needing a body, so that combination stored an empty reply — over
+HTTP, not just in theory. `EditPost` keys off the stored type and never had the
+hole, so the two use cases disagreed about one rule.
+
+Closed by deciding the effective type once, before any rule runs: a parent makes
+the post a reply whatever was asked for. Nothing downstream reassigns it. The
+coercion itself is intended and stays — the parent wins — so the same request
+with a body is still accepted as a reply.
+
+Four mutations, all killed.
 
 ### 7. Deleted posts remain fully operable — **M**
 

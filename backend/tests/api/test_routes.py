@@ -243,6 +243,26 @@ class TestPosts:
         assert posts[0]["replies"][0]["type"] == "Reply"
         assert posts[0]["replies"][0]["position"] == {"chapter": 9, "page": None}
 
+    async def test_an_empty_reply_sent_as_progress_returns_400(self, client):
+        """Progress is the one type exempt from needing a body, and a parent
+        overrides the requested type — so this combination is how an empty
+        reply reached the store."""
+        parent = await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Thought", "body": "Parent."},
+        )
+        response = await client.post(
+            "/api/posts",
+            json={
+                "book_id": BOOK.value,
+                "type": "Progress",
+                "chapter": 9,
+                "parent_post_id": parent.json()["id"],
+            },
+        )
+        assert response.status_code == 400
+        assert response.json() == {"error": "Write something first."}
+
     async def test_replying_to_a_reply_returns_400(self, client):
         parent = await client.post(
             "/api/posts",

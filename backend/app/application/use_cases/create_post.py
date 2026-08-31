@@ -48,6 +48,13 @@ class CreatePost:
 
         is_reply = command.parent_post_id is not None
 
+        # A parent makes this a reply whatever type was asked for. Every rule
+        # below keys off the type the post will actually have, never the
+        # requested one — deciding the type late is how an empty reply got
+        # stored: Progress is exempt from the body rule, and the overwrite to
+        # Reply happened after the check.
+        post_type = PostType.REPLY if is_reply else command.type
+
         # Replies copy their parent's position, so anything supplied is ignored
         # and validating it would reject input that has no effect.
         if not is_reply:
@@ -55,7 +62,7 @@ class CreatePost:
             if invalid is not None:
                 return Err(invalid)
 
-        if command.type is not PostType.PROGRESS and not command.body.strip():
+        if post_type is not PostType.PROGRESS and not command.body.strip():
             return Err(errors.BodyRequired("Write something first."))
 
         if len(command.body) > MAX_BODY:
@@ -83,7 +90,6 @@ class CreatePost:
             ):
                 return Err(chapter_beyond_book(book, command.chapter))
 
-            post_type = command.type
             position: Position | None
 
             if is_reply:
@@ -100,7 +106,6 @@ class CreatePost:
                             "That post belongs to a different book."
                         )
                     )
-                post_type = PostType.REPLY
                 position = parent.position
             else:
                 position = (
