@@ -86,6 +86,32 @@ class TestBookFallbacks:
         assert properties["Author"]["rich_text"][0]["text"]["content"] == "Susanna Clarke"
 
 
+class TestHandEditedBookText:
+    """Notion's text fields are free-form and the docs invite hand-edits.
+
+    A whitespace title reached `Book.__post_init__`, which raises — a `500` on
+    `GET /api/books` and on every feed for that book, from typing a space.
+    """
+
+    def test_a_whitespace_title_falls_back_instead_of_raising(self):
+        page = book_page(Title={"title": [{"plain_text": "   "}]})
+        assert BOOKS.to_domain(page).title == "Untitled"
+
+    def test_a_title_is_stripped(self):
+        page = book_page(Title={"title": [{"plain_text": "  Piranesi  "}]})
+        assert BOOKS.to_domain(page).title == "Piranesi"
+
+    def test_a_whitespace_author_reads_as_no_author(self):
+        """Blank-but-present is not a state a book should have: it renders as
+        an empty author line that looks like a bug."""
+        page = book_page(Author={"rich_text": [{"plain_text": "   "}]})
+        assert BOOKS.to_domain(page).author is None
+
+    def test_an_author_is_stripped(self):
+        page = book_page(Author={"rich_text": [{"plain_text": " Susanna Clarke "}]})
+        assert BOOKS.to_domain(page).author == "Susanna Clarke"
+
+
 class TestPostFallbacks:
     def test_an_unknown_type_falls_back_to_thought(self):
         assert POSTS.to_domain(post_page(Type={"select": {"name": "Musing"}})).type is (

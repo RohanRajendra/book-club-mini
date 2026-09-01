@@ -276,6 +276,18 @@ backend and is listed in Tier 3 as #26 rather than deleted.
 
 ## Tier 3 — latent, narrow, or needs an out-of-band trigger
 
+### 27. Hand-edited book text could take the book list down — **fixed**
+
+Found by reading the live workspace while verifying the rest. `Test Book` holds
+an empty author, which mapped correctly to absent — but a *whitespace* one did
+not, and a whitespace **title** is truthy, so it reached `Book.__post_init__`,
+which raises. A `500` on `GET /api/books` and on every feed for that book, from
+typing a space into Notion. Same family as #17 and #24: a hand-edit the docs
+invite, taking down a read path.
+
+Both fields are now stripped in the mapper, matching what the use cases already
+do on write. Three mutations, all killed.
+
 ### 19, 21 & 25. Writes that survived what should have undone them — **fixed**
 
 **#25.** `__aexit__` rolled back only when an exception passed through, so a use
@@ -526,8 +538,10 @@ implementation, not a specification of the product.
 - **One non-ASCII value in the whole suite**, and the assertion on the next line
   slices it out of the comparison.
 - **No concurrency tests.** The token-bucket burst test is a sequential loop.
-  *Addressed for one case:* the issue #8 fix adds the first test that actually
-  interleaves two operations. That absence was the reason the race existed —
+  *Addressed for three cases:* issue #8 adds the first test that actually
+  interleaves two operations, #21 injects a write in the middle of the delete
+  cascade, and #20 and #23 pin what happens when two writers or two processes
+  overlap. That absence was the reason the race existed —
   everything else runs to completion between statements, so a write landing
   *during* a read was not a state any test could reach.
 - **Every use-case test injects one shared unit of work**, never a real factory,
@@ -541,9 +555,9 @@ implementation, not a specification of the product.
   `lib/positionRules.js`, which at least name each other.
 
 The convention adopted with issue #2, and applied to every fix since: **after
-adding a guard, delete it and confirm the suite fails.** Fifty-three mutations
-across the ten fixes, all killed. Four survived a first pass, and each one named
-a real hole rather than a cosmetic one:
+adding a guard, delete it and confirm the suite fails.** 115 mutations across
+every fix, all killed. Nine survived a first pass, and each one named a real
+hole rather than a cosmetic one:
 
 | Fix | Survivor | What it exposed |
 | --- | --- | --- |
@@ -551,6 +565,11 @@ a real hole rather than a cosmetic one:
 | #5 | `rstrip()` deleted | Every boundary test used a single space, never a run |
 | #7 | Only `in_trash` read | The legacy spelling was written but never read back |
 | #8 | Entry stamped on return | An undocumented decision, and the opposite of a defect |
+| #10 | Repository stopped skipping | `list_for_book` cannot see the case; `list_replies` can |
+| #12 | Word-boundary floor | No emoji test reached the cut decision |
+| #24 | Lookup table patched | A test that passed against the fix *and* the defect |
+| #19 | Repair on a healthy list | A read that commits invalidates the cache on every page load |
+| #25 | `commit` not recording | Equivalent for both adapters, breaks the port for a third |
 
 The habit that keeps paying: a test written by reading the implementation
 terminates green. Five tests in this audit asserted the defect as intended

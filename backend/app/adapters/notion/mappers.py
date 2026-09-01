@@ -70,8 +70,12 @@ class BookMapper:
 
         return Book(
             id=BookId(page["id"]),
-            title=rich_text.plain(properties, BOOK_TITLE) or "Untitled",
-            author=rich_text.plain(properties, BOOK_AUTHOR) or None,
+            # Stripped, because these are free-form Notion text fields and the
+            # docs invite hand-edits. A whitespace title is truthy, so it used
+            # to reach the entity guard and raise — a 500 on the book list and
+            # on every feed for that book, from typing a space.
+            title=rich_text.plain(properties, BOOK_TITLE).strip() or "Untitled",
+            author=rich_text.plain(properties, BOOK_AUTHOR).strip() or None,
             status=status,
             total_chapters=total if total and total > 0 else None,
         )
