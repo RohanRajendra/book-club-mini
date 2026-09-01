@@ -209,15 +209,27 @@ them, and concealment would switch off for the entire work.
 The visual scale of the progress indicator:
 
 ```
-length known    →  (max(length, highest observed division), exact)
-length unknown  →  (max(ceil(highest observed × 1.2), 10), estimated)
+length known       →  (max(length, highest observed division), exact)
+finished, unknown  →  (highest observed division, exact)
+otherwise unknown  →  (max(ceil(highest observed × 1.2), 10), estimated)
 ```
 
-The *estimated* flag reports whether the work declared its own length, not
-whether the number was adjusted. A stated length that an entry overshoots is
-still not an estimate — the indicator's job is to stay honest about its source
-while still containing every entry. An indicator that draws a marker past its
-own end is worse than one that stretches.
+The *estimated* flag reports whether the far end is a guess — the work is still
+being read and nobody has said where it ends. It is not a record of whether the
+number was adjusted. A stated length that an entry overshoots is still not an
+estimate: the indicator's job is to stay honest about its source while still
+containing every entry, and one that draws a marker past its own end is worse
+than one that stretches.
+
+The middle case exists because headroom means *room for divisions not yet
+reached*, and a finished work has none. Adding 20% to a finished work draws its
+furthest marker at 83% of the track and tells a reader who has read the whole
+thing that there is more of it. The furthest division anyone reached is the best
+evidence of where a finished work ends, and on a work that is over that is
+evidence rather than a guess — so the indicator is drawn solid and labelled.
+
+Marked finished with nothing recorded leaves nothing to infer from, so it falls
+through to the estimated branch rather than producing a scale of zero.
 
 Writing an entry past a stated length is refused (see *Division bounds* above),
 and so is shortening a work below its existing entries, so an overshoot can only
@@ -225,7 +237,7 @@ reach the system through the datastore directly. That route stays supported,
 which is why the calculation still tolerates one.
 
 The floor of 10 applies only to the estimated branch. A known length of 3 is
-drawn as 3.
+drawn as 3, and so is a finished work whose furthest entry is at 3.
 
 ---
 

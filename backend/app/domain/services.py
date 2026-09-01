@@ -102,21 +102,41 @@ class ScaleCalculator:
     """How far the spine's track reaches, and whether that is a guess."""
 
     def calculate(
-        self, total_chapters: int | None, observed_max: int | None
+        self,
+        total_chapters: int | None,
+        observed_max: int | None,
+        is_finished: bool = False,
     ) -> tuple[int, bool]:
         """Return `(max_chapter, is_estimated)`.
 
-        `is_estimated` tracks whether the book told us its length, not whether
-        the number was adjusted. A stated total that a post overshoots is still
-        not an estimate.
+        `is_estimated` says the far end of the track is a guess — that the
+        book is still being read and nobody has said where it ends. It is not a
+        record of whether the number was adjusted: a stated total that a post
+        overshoots is still not an estimate.
+
+        Three sources, in order of how much they are worth:
+
+        1. A stated total. The book told us, so believe it.
+        2. A finished book's furthest posted chapter. Headroom exists to leave
+           room for chapters not yet reached, and a finished book has none — so
+           adding 20% draws the last tick at 83% of the track and tells someone
+           who has read the whole book that there is more of it. The furthest
+           chapter anyone reached is the best evidence of where it ends, and on
+           a book that is over it is evidence rather than a guess.
+        3. Neither: infer from the furthest chapter with headroom, and say so.
 
         The app now refuses to write a chapter past a book's stated total, and
         refuses to shorten a book below its posts, so an overshoot can only
-        arrive from a row edited directly in Notion. This stays because that
+        arrive from a row edited directly in Notion. Case 1 stays because that
         route is documented and supported — the spine's job is to contain the
         post it is given while staying honest about where its scale came from.
         """
         observed = observed_max or 0
         if total_chapters is not None:
             return max(total_chapters, observed), False
+        if is_finished and observed:
+            # Marked finished with nothing posted leaves nothing to infer from,
+            # so that case falls through to the guess rather than returning a
+            # scale of zero.
+            return observed, False
         return max(math.ceil(observed * HEADROOM), MIN_SCALE), True

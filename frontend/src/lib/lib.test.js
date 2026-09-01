@@ -44,16 +44,24 @@ describe('spineScale', () => {
   // These cases mirror tests/unit/domain/test_services.py exactly. If the two
   // ever disagree, delete this copy and render only what the API sends.
   it.each([
-    [30, 12, 30, false],
-    [null, 50, 60, true],
-    [null, 3, 10, true],
-    [null, null, 10, true],
-    [30, 400, 400, false],
-    [3, null, 3, false],
-    [null, 11, 14, true],
-  ])('matches the backend for (%s, %s)', (total, observed, max, isEstimated) => {
-    expect(spineScale(total, observed)).toEqual({ max, isEstimated })
-  })
+    [30, 12, false, 30, false],
+    [null, 50, false, 60, true],
+    [null, 3, false, 10, true],
+    [null, null, false, 10, true],
+    [30, 400, false, 400, false],
+    [3, null, false, 3, false],
+    [null, 11, false, 14, true],
+    // A finished book with no stated length ends at its furthest chapter.
+    [null, 45, true, 45, false],
+    [50, 45, true, 50, false],
+    [null, 3, true, 3, false],
+    [null, null, true, 10, true],
+  ])(
+    'matches the backend for (%s, %s, finished=%s)',
+    (total, observed, isFinished, max, isEstimated) => {
+      expect(spineScale(total, observed, isFinished)).toEqual({ max, isEstimated })
+    },
+  )
 })
 
 describe('formatPosition', () => {

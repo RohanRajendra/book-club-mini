@@ -6,7 +6,7 @@ from app.application.dto import Feed, FeedPost, Spine
 from app.domain.entities import Book, Post
 from app.domain.policies import SpoilerPolicy
 from app.domain.services import PositionResolver, ScaleCalculator
-from app.domain.values import MemberName, PostType
+from app.domain.values import BookStatus, MemberName, PostType
 
 #: The filter chip labels exposed to the client.
 COUNT_KEYS = {
@@ -85,7 +85,11 @@ class FeedAssembler:
 
         observed = [post.position.chapter for post in posts if post.position]
         max_chapter, is_estimated = self._scale.calculate(
-            book.total_chapters, max(observed) if observed else None
+            book.total_chapters,
+            max(observed) if observed else None,
+            # Every post counts, not just progress. A thought written at
+            # chapter 45 is evidence someone reached chapter 45.
+            is_finished=book.status is BookStatus.FINISHED,
         )
 
         return Feed(

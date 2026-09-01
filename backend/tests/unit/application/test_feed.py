@@ -9,7 +9,14 @@ from app.application.feed import FeedAssembler
 from app.domain.entities import Post
 from app.domain.policies import ChapterFirstSpoilerPolicy, SpoilerPolicy
 from app.domain.services import PositionResolver, ScaleCalculator
-from app.domain.values import BookId, MemberName, Position, PostId, PostType
+from app.domain.values import (
+    BookId,
+    BookStatus,
+    MemberName,
+    Position,
+    PostId,
+    PostType,
+)
 from tests.builders import ADA, GRACE, ROSTER, at_minute, make_book, make_post, make_reply
 
 
@@ -206,3 +213,41 @@ class TestScale:
         book = make_book(total_chapters=None)
         feed = assembler().assemble(book, [post("t", minute=1, position=Position(50))], ADA)
         assert feed.spine.max_chapter == 60
+
+
+class TestScaleForAFinishedBook:
+    """A finished book with no stated length ends at its furthest chapter.
+
+    Headroom leaves room for chapters not yet reached, and a finished book has
+    none — so it drew the last tick at 83% of the track and told a member who
+    had finished the book there was more of it.
+    """
+
+    def test_the_track_ends_at_the_furthest_posted_chapter(self):
+        book = make_book(total_chapters=None, status=BookStatus.FINISHED)
+        feed = assembler().assemble(book, [progress("p", ADA, 45, 1)], ADA)
+        assert feed.spine == Spine(max_chapter=45, is_estimated=False)
+
+    def test_a_thought_counts_as_evidence_not_only_progress(self):
+        """Writing about chapter 45 means someone reached chapter 45."""
+        book = make_book(total_chapters=None, status=BookStatus.FINISHED)
+        feed = assembler().assemble(
+            book, [post("t", minute=1, position=Position(45))], ADA
+        )
+        assert feed.spine.max_chapter == 45
+
+    def test_a_stated_total_still_wins(self):
+        book = make_book(total_chapters=50, status=BookStatus.FINISHED)
+        feed = assembler().assemble(book, [progress("p", ADA, 45, 1)], ADA)
+        assert feed.spine == Spine(max_chapter=50, is_estimated=False)
+
+    def test_a_finished_book_with_nothing_posted_is_still_a_guess(self):
+        book = make_book(total_chapters=None, status=BookStatus.FINISHED)
+        feed = assembler().assemble(book, [], ADA)
+        assert feed.spine == Spine(max_chapter=10, is_estimated=True)
+
+    def test_a_book_still_being_read_keeps_its_headroom(self):
+        for status in (BookStatus.CURRENTLY_READING, BookStatus.PAUSED, BookStatus.UPCOMING):
+            book = make_book(total_chapters=None, status=status)
+            feed = assembler().assemble(book, [progress("p", ADA, 45, 1)], ADA)
+            assert feed.spine == Spine(max_chapter=54, is_estimated=True), status

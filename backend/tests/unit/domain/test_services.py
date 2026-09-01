@@ -271,3 +271,53 @@ class TestScaleCalculator:
 
     def test_headroom_rounds_up(self):
         assert self.scale(total_chapters=None, observed_max=11) == (14, True)
+
+
+class TestScaleCalculatorForAFinishedBook:
+    """A finished book with no stated length has already ended.
+
+    Headroom exists to leave room for chapters not yet reached. There are none,
+    so it draws the furthest tick at 83% of the track and tells a member who
+    has finished the book that there is more of it left.
+    """
+
+    scale = staticmethod(ScaleCalculator().calculate)
+
+    def test_the_furthest_posted_chapter_becomes_the_length(self):
+        assert self.scale(
+            total_chapters=None, observed_max=45, is_finished=True
+        ) == (45, False)
+
+    def test_it_is_not_reported_as_an_estimate(self):
+        """The track is drawn solid and labelled with the chapter rather than
+        `?`, because the far end is no longer a guess about a book still being
+        read."""
+        assert self.scale(
+            total_chapters=None, observed_max=45, is_finished=True
+        )[1] is False
+
+    def test_a_stated_total_still_wins(self):
+        """Evidence from posts is the fallback, not an override."""
+        assert self.scale(
+            total_chapters=50, observed_max=45, is_finished=True
+        ) == (50, False)
+
+    def test_the_minimum_does_not_apply(self):
+        """The floor of ten belongs to the guessing branch. A finished novella
+        of three chapters must not be drawn as a ten-chapter book."""
+        assert self.scale(
+            total_chapters=None, observed_max=3, is_finished=True
+        ) == (3, False)
+
+    def test_no_posted_chapters_falls_back_to_a_guess(self):
+        """Marked finished with nothing to infer from. There is no evidence to
+        prefer, so this stays an estimate rather than becoming a scale of
+        zero."""
+        assert self.scale(
+            total_chapters=None, observed_max=None, is_finished=True
+        ) == (MIN_SCALE, True)
+
+    def test_an_unfinished_book_still_gets_headroom(self):
+        assert self.scale(
+            total_chapters=None, observed_max=45, is_finished=False
+        ) == (54, True)

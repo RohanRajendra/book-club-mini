@@ -245,6 +245,35 @@ separate issue from the cascade silently missing work.
 
 ---
 
+## Reported separately
+
+### A finished book's spine never reached its last chapter — **fixed**
+
+Reported from the UI on 2026-09-01. A book with no chapter count configured got
+20% headroom on its scale, so the furthest tick sat at 83% of the track. On a
+book marked *Finished* that is simply wrong: headroom exists to leave room for
+chapters not yet reached, and there are none. The spine told a member who had
+read the whole book that there was more of it.
+
+Closed by making a finished book's furthest posted chapter its length. Every
+post counts as evidence, not just progress updates — writing about chapter 45
+means someone reached chapter 45. The track is drawn solid and labelled with the
+chapter rather than `?`, because on a book that is over this is evidence rather
+than a guess.
+
+A stated chapter count still wins; evidence from posts is the fallback, not an
+override. Marked finished with nothing posted stays an estimate, since there is
+nothing to infer from and a scale of zero is not a spine.
+
+Eight mutations, all killed.
+
+Noticed while fixing it: `frontend/src/lib/spineScale.js` is imported by nothing
+but its own test. Its docstring says it exists for an optimistic update after
+posting, and that update does not exist. It has been kept in parity with the
+backend and is listed in Tier 3 as #26 rather than deleted.
+
+---
+
 ## Tier 3 — latent, narrow, or needs an out-of-band trigger
 
 | # | Issue | Cost |
@@ -264,6 +293,7 @@ separate issue from the cascade silently missing work.
 | 23 | The feed cache is per-process and per-installation. Running more than one worker, or the second member's machine, never invalidates it. | M |
 | 24 | Sorting books raises on any status outside the ordering list — a 500 on `GET /api/books` the day a fifth status is added. | S |
 | 25 | A use case that writes and then returns `Err` does not roll back; only a raised exception does. No current path does it, but one added guard clause would. | S |
+| 26 | `frontend/src/lib/spineScale.js` is imported by nothing but its own test. It duplicates the backend calculation for an optimistic update that does not exist, so its tests assert parity with something no member ever sees. | S |
 
 ---
 
