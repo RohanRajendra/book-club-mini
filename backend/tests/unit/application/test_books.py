@@ -39,6 +39,73 @@ async def test_add_book_requires_a_title(add):
     assert isinstance(result.unwrap_err(), errors.TitleRequired)
 
 
+class TestBookTextFields:
+    """A title or author too long for the store, and whitespace in either.
+
+    An oversize value passed every layer and Notion rejected it, so a member
+    who pasted the wrong thing into a text box was told "Can't reach Notion
+    right now" — a 502 for a typing mistake.
+    """
+
+    #: The store's own cap on a title or rich text property, in UTF-16 units.
+    OVER = "x" * 2001
+
+    async def test_an_oversize_title_is_refused_with_a_readable_error(self, add):
+        result = await add.execute(BookCommand(title=self.OVER))
+        error = result.unwrap_err()
+        assert isinstance(error, errors.TextTooLong)
+        assert "title" in error.message and "2,000" in error.message
+
+    async def test_a_title_at_exactly_the_limit_is_accepted(self, add):
+        title = "x" * 2000
+        assert (await add.execute(BookCommand(title=title))).unwrap().title == title
+
+    async def test_an_oversize_author_is_refused(self, add):
+        result = await add.execute(BookCommand(title="Piranesi", author=self.OVER))
+        assert isinstance(result.unwrap_err(), errors.TextTooLong)
+
+    async def test_the_limit_counts_utf16_units(self, add):
+        """1001 emoji is 2002 units — over the cap at half the character
+        count, and exactly what Notion refuses."""
+        result = await add.execute(BookCommand(title="\U0001F600" * 1001))
+        assert isinstance(result.unwrap_err(), errors.TextTooLong)
+
+    async def test_an_oversize_title_is_refused_on_edit_too(self, add, update):
+        book = (await add.execute(BookCommand(title="Piranesi"))).unwrap()
+        result = await update.execute(book.id, BookCommand(title=self.OVER))
+        assert isinstance(result.unwrap_err(), errors.TextTooLong)
+
+    async def test_a_whitespace_author_is_stored_as_no_author(self, add):
+        """Blank-but-present displayed as an empty author line and could not be
+        removed, because clearing a field was itself broken (issue #1)."""
+        book = (await add.execute(BookCommand(title="Piranesi", author="   "))).unwrap()
+        assert book.author is None
+
+    async def test_an_author_is_stripped(self, add):
+        book = (
+            await add.execute(BookCommand(title="Piranesi", author="  Susanna Clarke "))
+        ).unwrap()
+        assert book.author == "Susanna Clarke"
+
+    async def test_an_author_is_stripped_on_edit_too(self, add, update):
+        book = (await add.execute(BookCommand(title="Piranesi"))).unwrap()
+        edited = (
+            await update.execute(
+                book.id, BookCommand(title="Piranesi", author=" Clarke ")
+            )
+        ).unwrap()
+        assert edited.author == "Clarke"
+
+    async def test_clearing_an_author_still_works(self, add, update):
+        book = (
+            await add.execute(BookCommand(title="Piranesi", author="Clarke"))
+        ).unwrap()
+        edited = (
+            await update.execute(book.id, BookCommand(title="Piranesi", author=None))
+        ).unwrap()
+        assert edited.author is None
+
+
 async def test_add_book_defaults_status_to_upcoming(add):
     assert (await add.execute(BookCommand(title="Piranesi"))).unwrap().status is (
         BookStatus.UPCOMING

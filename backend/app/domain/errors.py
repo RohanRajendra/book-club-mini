@@ -96,6 +96,18 @@ class TitleRequired(DomainError):
 
 
 @dataclass(frozen=True)
+class TextTooLong(DomainError):
+    """A short text field over the store's per-property cap.
+
+    Separate from `BodyTooLong`, whose limit is three orders of magnitude
+    larger and reached by a different route: a body is chunked across many
+    properties, a title lives in exactly one.
+    """
+
+    code: ClassVar[str] = "text_too_long"
+
+
+@dataclass(frozen=True)
 class UnknownMember(DomainError):
     code: ClassVar[str] = "unknown_member"
 

@@ -276,6 +276,29 @@ backend and is listed in Tier 3 as #26 rather than deleted.
 
 ## Tier 3 — latent, narrow, or needs an out-of-band trigger
 
+### 11 & 13. A book's title and author had no limit and no cleaning — **fixed**
+
+An oversize title or author passed every layer and Notion refused it, which the
+member read as "Can't reach Notion right now" — a `502` for a typing mistake,
+naming no field. And `author` was never stripped, only `title` was, so a
+whitespace author was stored: blank-but-present, and until issue #1 was fixed,
+impossible to remove.
+
+Both are one code path, so both are closed together. `TextTooLong` names the
+field and both numbers. A title or author is stripped, and whitespace-only is
+stored as absent — blank and absent should not be two different states. The
+limit counts UTF-16 units, for the reason in #12 below.
+
+The browser form now caps both inputs at 2000 as well. HTML `maxlength` counts
+UTF-16 code units, which is the same quantity Notion counts, so the two rules
+agree exactly — including for emoji — and the paste is stopped rather than
+round-tripped into an error.
+
+Ten mutations, all killed. Two coverage gaps surfaced while checking and both
+were real: an unreachable early return in the clip helper, now removed, and the
+entity's own cap guard, which the use case shields from every test that goes
+through it.
+
 ### 12. Every length limit measured the wrong quantity — **fixed**
 
 Notion's 2000-character property cap counts **UTF-16 code units**, not code
@@ -311,8 +334,6 @@ boundary floor, which no emoji test reached.
 
 | # | Issue | Cost |
 | --- | --- | --- |
-| 11 | An oversize title or author passes every layer, Notion rejects it, and the member is told "Can't reach Notion right now" — a 502 for a typing mistake. No `max_length` on `BookRequest`. | S |
-| 13 | `author` is never stripped, only `title` is. A whitespace author is stored, displays blank-but-present, and cannot be removed (see #1). | S |
 | 14 | Posts whose book relation is empty are given the fabricated id `BookId("orphan")` — invisible forever, a latent collision, and a hole in the guarantee that identifiers never silently substitute. | S |
 | 15 | A member name read from Notion is never checked against the roster and compares by exact string. Roster `Ada` against Notion `ada` is two people, and your own posts get blurred back at you. | S |
 | 16 | `?type=Reply` is an accepted filter that always returns an empty feed, with no `reply` count to explain why. | S |

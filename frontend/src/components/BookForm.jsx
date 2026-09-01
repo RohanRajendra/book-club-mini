@@ -3,6 +3,12 @@ import { escapes } from './QuickProgress'
 
 const STATUSES = ['Currently Reading', 'Upcoming', 'Paused', 'Finished']
 
+// The store holds a title or author in one 2000-unit text property. `maxlength`
+// counts UTF-16 code units, which is the same quantity Notion counts, so this
+// and the server rule agree exactly — including for emoji. Stopping the paste
+// here beats a round trip that comes back as an error.
+const FIELD_LIMIT = 2000
+
 /** Add and edit share this form. A title is the only required field. */
 export function BookForm({ book, onSave, onCancel }) {
   const [title, setTitle] = useState(book?.title ?? '')
@@ -40,11 +46,20 @@ export function BookForm({ book, onSave, onCancel }) {
       <div className="dialog__grid">
         <label className="wide">
           Title
-          <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} />
+          <input
+            autoFocus
+            maxLength={FIELD_LIMIT}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
         </label>
         <label className="wide">
           Author
-          <input value={author} onChange={(e) => setAuthor(e.target.value)} />
+          <input
+            maxLength={FIELD_LIMIT}
+            value={author}
+            onChange={(e) => setAuthor(e.target.value)}
+          />
         </label>
         <label>
           Status

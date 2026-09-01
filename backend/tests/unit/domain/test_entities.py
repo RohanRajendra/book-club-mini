@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.domain.entities import Book, Post
+from app.domain.entities import FIELD_LIMIT, Book, Post
 from app.domain.values import BookId, BookStatus, MemberName, Position, PostId, PostType
 
 NOW = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
@@ -48,6 +48,26 @@ class TestBook:
     def test_an_unsaved_book_has_no_id(self):
         """A book being created has no Notion page yet."""
         assert Book(title="Piranesi").id is None
+
+    def test_book_rejects_a_title_over_the_property_cap(self):
+        """The use case refuses this first with a readable message. This is the
+        last-line assertion behind it, and it is what a future caller that
+        skips the use case runs into."""
+        with pytest.raises(ValueError, match="title"):
+            Book(title="x" * (FIELD_LIMIT + 1))
+
+    def test_book_rejects_an_author_over_the_property_cap(self):
+        with pytest.raises(ValueError, match="author"):
+            Book(title="Piranesi", author="x" * (FIELD_LIMIT + 1))
+
+    def test_book_measures_those_caps_in_utf16_units(self):
+        """1001 emoji is 2002 units — over the cap at half the character
+        count, and exactly what Notion refuses."""
+        with pytest.raises(ValueError, match="title"):
+            Book(title="\U0001F600" * 1001)
+
+    def test_book_allows_a_title_at_exactly_the_cap(self):
+        assert Book(title="x" * FIELD_LIMIT).title == "x" * FIELD_LIMIT
 
 
 class TestBookContainsChapter:

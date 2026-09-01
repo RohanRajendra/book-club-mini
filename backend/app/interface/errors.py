@@ -27,6 +27,7 @@ STATUS_BY_CODE: dict[str, int] = {
     errors.BodyRequired.code: 400,
     errors.BodyTooLong.code: 400,
     errors.TitleRequired.code: 400,
+    errors.TextTooLong.code: 400,
     errors.UnknownMember.code: 400,
 }
 

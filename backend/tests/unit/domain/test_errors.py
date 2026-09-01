@@ -29,6 +29,7 @@ def test_the_expected_failures_are_all_present():
         "BodyRequired",
         "BodyTooLong",
         "TitleRequired",
+        "TextTooLong",
         "UnknownMember",
     }
     assert {error.__name__ for error in all_domain_errors()} == expected

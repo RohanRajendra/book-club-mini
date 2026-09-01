@@ -54,6 +54,23 @@ class TestBooks:
         assert response.status_code == 400
         assert response.json() == {"error": "A book needs a title."}
 
+    async def test_add_book_with_an_oversize_title_returns_400_not_502(self, client):
+        """It used to pass every layer and be refused by Notion, which the
+        member read as "Can't reach Notion right now" — a 502 for a typing
+        mistake, naming no field."""
+        response = await client.post("/api/books", json={"title": "x" * 2001})
+        assert response.status_code == 400
+        assert response.json() == {
+            "error": "That title is 2,001 characters. The limit is 2,000."
+        }
+
+    async def test_a_whitespace_author_is_stored_as_no_author(self, client):
+        response = await client.post(
+            "/api/books", json={"title": "Jonathan Strange", "author": "   "}
+        )
+        assert response.status_code == 201
+        assert response.json()["author"] is None
+
     async def test_patch_book_updates_it(self, client):
         response = await client.patch(
             f"/api/books/{BOOK.value}",

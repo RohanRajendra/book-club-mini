@@ -12,8 +12,9 @@ from typing import Callable
 
 from app.application.position_rules import total_below_posts
 from app.domain import errors
-from app.domain.entities import Book
+from app.domain.entities import FIELD_LIMIT, Book
 from app.domain.result import Err, Ok, Result
+from app.domain.text import utf16_length
 from app.domain.values import BookId, BookStatus
 from app.ports.unit_of_work import UnitOfWork
 
@@ -33,6 +34,37 @@ class BookCommand:
     author: str | None = None
     status: BookStatus = BookStatus.UPCOMING
     total_chapters: int | None = None
+
+
+def _clean(value: str | None) -> str | None:
+    """Strip a text field, and treat whitespace-only as absent.
+
+    A whitespace author displayed as a blank-but-present line and, until
+    clearing a field worked at all, could not be removed. Absent and
+    blank should not be two different states.
+    """
+    if value is None:
+        return None
+    return value.strip() or None
+
+
+def _too_long(command: BookCommand) -> errors.TextTooLong | None:
+    """Refused here rather than by the store.
+
+    Notion rejects an oversize property with a 400, which surfaces as "Can't
+    reach Notion right now" — a 502 for a typing mistake, and no clue which
+    field was at fault.
+    """
+    for name, value in (("title", command.title), ("author", command.author)):
+        if value is None:
+            continue
+        length = utf16_length(value)
+        if length > FIELD_LIMIT:
+            return errors.TextTooLong(
+                f"That {name} is {length:,} characters. The limit is "
+                f"{FIELD_LIMIT:,}."
+            )
+    return None
 
 
 def _sort_key(book: Book) -> tuple[int, str]:
@@ -92,6 +124,9 @@ class AddBook:
     async def execute(self, command: BookCommand) -> Result[Book]:
         if not command.title.strip():
             return Err(errors.TitleRequired("A book needs a title."))
+        too_long = _too_long(command)
+        if too_long is not None:
+            return Err(too_long)
 
         uow = self._uow_factory()
         async with uow:
@@ -101,7 +136,7 @@ class AddBook:
             created = await uow.books.add(
                 Book(
                     title=command.title.strip(),
-                    author=command.author,
+                    author=_clean(command.author),
                     status=command.status,
                     total_chapters=command.total_chapters,
                 )
@@ -117,6 +152,9 @@ class UpdateBook:
     async def execute(self, book_id: BookId, command: BookCommand) -> Result[Book]:
         if not command.title.strip():
             return Err(errors.TitleRequired("A book needs a title."))
+        too_long = _too_long(command)
+        if too_long is not None:
+            return Err(too_long)
 
         uow = self._uow_factory()
         async with uow:
@@ -142,7 +180,7 @@ class UpdateBook:
                 replace(
                     existing,
                     title=command.title.strip(),
-                    author=command.author,
+                    author=_clean(command.author),
                     status=command.status,
                     total_chapters=command.total_chapters,
                 )

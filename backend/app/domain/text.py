@@ -32,10 +32,11 @@ def clip_to_utf16(text: str, limit: int) -> str:
     would split a surrogate pair and leave an unpaired surrogate — text no
     store will accept and no reader can render — so an astral character that
     does not fit is dropped whole.
-    """
-    if utf16_length(text) <= limit:
-        return text
 
+    Walks the whole string rather than measuring it first and returning early.
+    The early exit would state the same rule twice, and the walk costs what the
+    measurement it saves would have cost anyway.
+    """
     units = 0
     for index, char in enumerate(text):
         cost = 2 if ord(char) > _ASTRAL else 1

@@ -23,6 +23,11 @@ from app.domain.values import BookId, BookStatus, MemberName, Position, PostId, 
 #: the limit (00-overview.md §Notion schema).
 PREVIEW_LIMIT = 1900
 
+#: A single Notion title or rich text property holds 2000 UTF-16 code units.
+#: A title and an author each live in exactly one, with no chunking to fall
+#: back on, so this is the hard cap rather than a matter of taste.
+FIELD_LIMIT = 2000
+
 #: Below this, a difference between created_at and last_edited_time is the
 #: write path talking, not a member. Creating a long post is a page write then a
 #: block append, and the append bumps last_edited_time.
@@ -40,6 +45,12 @@ class Book:
     def __post_init__(self) -> None:
         if not self.title or not self.title.strip():
             raise ValueError("a book needs a title")
+        for name, value in (("title", self.title), ("author", self.author)):
+            if value is not None and utf16_length(value) > FIELD_LIMIT:
+                raise ValueError(
+                    f"{name} must be at most {FIELD_LIMIT} characters, "
+                    f"got {utf16_length(value)}"
+                )
         if self.total_chapters is not None and self.total_chapters < 1:
             raise ValueError(
                 f"total_chapters must be 1 or greater, got {self.total_chapters}"
