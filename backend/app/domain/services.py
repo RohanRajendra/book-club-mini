@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+from datetime import datetime, timezone
 
 from app.domain.entities import PREVIEW_LIMIT, Post
 from app.domain.text import clip_to_utf16, utf16_length
@@ -38,6 +39,28 @@ MIN_PREVIEW = PREVIEW_LIMIT * 4 // 5
 _LAST_BOUNDARY = re.compile(r"\s\S*\Z")
 
 
+#: Where a post with no timestamp sorts. The store assigns `created_at`, so an
+#: absent one means a record that was never saved or was hand-edited into that
+#: state — not news either way, so it sorts oldest.
+_UNDATED = datetime(1, 1, 1, tzinfo=timezone.utc)
+
+
+def created_order(post: Post) -> datetime:
+    """A total ordering key for a post's creation time.
+
+    `sorted` raises on the first pair it cannot compare, so one post with no
+    timestamp — or one naive datetime among aware ones — is not a post that
+    renders oddly. It is a 500 for the whole book. Notion always sends an
+    offset, so a naive value means a hand-edited row or a future adapter, and
+    neither should be able to take a feed down.
+    """
+    if post.created_at is None:
+        return _UNDATED
+    if post.created_at.tzinfo is None:
+        return post.created_at.replace(tzinfo=timezone.utc)
+    return post.created_at
+
+
 class PositionResolver:
     """Each member's current position: their most recent Progress post."""
 
@@ -63,7 +86,7 @@ class PositionResolver:
             if post.type is not PostType.PROGRESS or post.created_at is None:
                 continue
             current = latest.get(post.member)
-            if current is None or post.created_at > current.created_at:
+            if current is None or created_order(post) > created_order(current):
                 latest[post.member] = post
         return {
             member: post.position

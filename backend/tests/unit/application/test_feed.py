@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import datetime
+
 import pytest
 
 from app.application.dto import Spine
@@ -190,6 +193,63 @@ class TestSpoilerFlags:
         posts = [progress("ada", ADA, 4, minute=1), post("ahead", minute=2, member=GRACE, position=Position(400))]
         feed = assembler(NeverSpoiler()).assemble(make_book(), posts, ADA)
         assert all(not fp.is_spoiler for fp in feed.posts)
+
+
+class TestOddTimestampsDoNotTakeTheFeedDown:
+    """Sorting is the one place where a single bad row breaks everything.
+
+    `sorted` raises on the first incomparable pair, so one post with no
+    timestamp, or one naive datetime among aware ones, is not a post that
+    renders oddly — it is a 500 for the whole book.
+    """
+
+    def test_a_post_with_no_created_at_does_not_crash_the_feed(self):
+        posts = [post("a", minute=1), post("b", minute=2)]
+        posts[0] = replace(posts[0], created_at=None)
+        feed = assembler().assemble(make_book(), posts, ADA)
+        assert len(feed.posts) == 2
+
+    def test_a_post_with_no_created_at_sorts_oldest(self):
+        """Newest-first, and an untimestamped post is not news."""
+        posts = [replace(post("a", minute=1), created_at=None), post("b", minute=2)]
+        feed = assembler().assemble(make_book(), posts, ADA)
+        assert [entry.post.id.value for entry in feed.posts] == ["b", "a"]
+
+    def test_a_naive_datetime_does_not_crash_the_feed(self):
+        """Aware and naive datetimes cannot be compared at all. Notion always
+        sends an offset, so this is a hand-edited row or a future adapter —
+        neither of which should be able to take the feed down."""
+        naive = datetime(2026, 3, 1, 12, 30)
+        posts = [replace(post("a", minute=1), created_at=naive), post("b", minute=2)]
+        feed = assembler().assemble(make_book(), posts, ADA)
+        assert len(feed.posts) == 2
+
+    def test_a_naive_datetime_is_read_as_utc_when_ordering(self):
+        posts = [
+            replace(post("a", minute=1), created_at=datetime(2026, 3, 1, 12, 30)),
+            post("b", minute=2),
+        ]
+        feed = assembler().assemble(make_book(), posts, ADA)
+        assert [entry.post.id.value for entry in feed.posts] == ["a", "b"]
+
+    def test_a_reply_with_no_created_at_does_not_crash_the_thread(self):
+        parent = post("p", minute=1)
+        replies = [
+            replace(make_reply(parent, GRACE, id=PostId("r1")), created_at=None),
+            make_reply(parent, GRACE, id=PostId("r2"), created_at=at_minute(3)),
+        ]
+        feed = assembler().assemble(make_book(), [parent, *replies], ADA)
+        assert [r.post.id.value for r in feed.posts[0].replies] == ["r1", "r2"]
+
+    def test_positions_survive_a_naive_timestamp(self):
+        """PositionResolver compares timestamps too, and one bad row there
+        loses every member's position rather than one post."""
+        posts = [
+            replace(progress("a", ADA, 4, 1), created_at=datetime(2026, 3, 1, 12, 0)),
+            progress("b", ADA, 9, 2),
+        ]
+        feed = assembler().assemble(make_book(), posts, ADA)
+        assert feed.positions[ADA] == Position(9)
 
 
 class TestScale:

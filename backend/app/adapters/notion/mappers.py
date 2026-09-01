@@ -11,7 +11,7 @@ Notion, and a hand-edit must not 500 the app.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from app.adapters.notion import rich_text
@@ -37,10 +37,22 @@ POST_PARENT_ID = "Parent Post ID"
 
 
 def _timestamp(page: dict[str, Any], key: str) -> datetime | None:
+    """Always timezone-aware, or absent. Never raises.
+
+    Sorting compares these, and `sorted` raises on the first pair it cannot
+    compare — so one unparseable or naive value is a 500 for the whole feed
+    rather than one odd-looking row. Notion sends an offset on every timestamp;
+    anything else here came from a hand-edited row, and UTC is the only reading
+    of it that is not a guess about someone's local clock.
+    """
     raw = page.get(key)
     if not raw:
         return None
-    return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    try:
+        parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 class BookMapper:

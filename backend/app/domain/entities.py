@@ -107,9 +107,21 @@ class Post:
     def was_edited(self) -> bool:
         """Whether a member changed this post after posting it.
 
-        Compared against a threshold rather than for equality, because the
-        create-then-append write path moves last_edited_time on its own.
+        The threshold exists because a *long* post is written as a page create
+        then a block append, and the append moves last_edited_time on its own.
+        A short post has no second write, so any gap at all is a member — and
+        the distinction matters because Notion truncates both timestamps to the
+        minute. The only gaps that exist are 0, 60, 120... seconds, so a flat
+        60-second threshold hides every edit made in the minute after posting.
+
+        An edit stamped *before* the creation is incoherent — clock skew, or a
+        page duplicated inside Notion. It is not evidence that anyone edited
+        anything, so it reads as unedited rather than as a negative gap
+        silently failing the comparison.
         """
         if self.created_at is None or self.edited_at is None:
             return False
-        return self.edited_at - self.created_at > EDIT_THRESHOLD
+        gap = self.edited_at - self.created_at
+        if gap <= timedelta(0):
+            return False
+        return gap > EDIT_THRESHOLD if self.has_full_body else True

@@ -276,6 +276,40 @@ backend and is listed in Tier 3 as #26 rather than deleted.
 
 ## Tier 3 — latent, narrow, or needs an out-of-band trigger
 
+### 17, 18 & 24. One bad row could take a whole read path down — **fixed**
+
+Three separate defects, one shape: a value that should make one row look odd
+instead broke everything that read it.
+
+**#17.** `sorted` raises on the first pair it cannot compare, so a post with no
+`created_at`, or one naive datetime among aware ones, was a `500` for the entire
+book rather than one misplaced post. Fixed at both ends: `created_order` is a
+total key that reads a naive value as UTC and sorts an undated post oldest, and
+the mapper no longer emits a naive or unparseable timestamp at all. Sorting is
+the one place a single bad row is fatal, so it is worth guarding twice.
+
+**#18.** An `edited_at` before `created_at` — clock skew, or a page duplicated
+inside Notion — silently failed a comparison. It now reads as unedited by an
+explicit rule rather than by a negative number happening to lose.
+
+**#24.** Sorting books raised on a status outside the ordering. A missing status
+now sorts last, and a completeness test asserts the ordering covers every enum
+member — so adding a fifth is a failing test rather than a `500` on
+`GET /api/books`.
+
+Twelve mutations, all killed. The survivor on the first pass was a test that
+patched the *lookup table* rather than the ordering, so both the old and new
+implementations passed it — a test that could not tell the fix from the defect.
+
+**New, found while fixing #18.** The `was_edited` threshold is 60 seconds, and
+Notion truncates both timestamps to the minute (see #9), so the only gaps that
+exist are 0, 60, 120… A threshold of `> 60` therefore hid **every edit made in
+the minute after posting**. The threshold exists for one reason: a long post is
+written as a page create then a block append, and the append moves
+`last_edited_time` by itself. A short post has no second write, so it needs no
+threshold at all — and short posts are the common case. The rule now depends on
+`has_full_body`, which is exactly the condition the second write depends on.
+
 ### 11 & 13. A book's title and author had no limit and no cleaning — **fixed**
 
 An oversize title or author passed every layer and Notion refused it, which the
@@ -337,14 +371,11 @@ boundary floor, which no emoji test reached.
 | 14 | Posts whose book relation is empty are given the fabricated id `BookId("orphan")` — invisible forever, a latent collision, and a hole in the guarantee that identifiers never silently substitute. | S |
 | 15 | A member name read from Notion is never checked against the roster and compares by exact string. Roster `Ada` against Notion `ada` is two people, and your own posts get blurred back at you. | S |
 | 16 | `?type=Reply` is an accepted filter that always returns an empty feed, with no `reply` count to explain why. | S |
-| 17 | A naive `datetime` from any source crashes the whole feed with a `TypeError` during sorting. `created_at=None` is permitted by the entity and does the same. | S |
-| 18 | `edited_at` earlier than `created_at` — clock skew, or a duplicated Notion page — makes `was_edited` permanently false. | S |
 | 19 | Two concurrent "set currently reading" operations both read before either writes, leaving two current books, never detected or repaired. | M |
 | 20 | `EditPost` is an unguarded read-modify-write. Last write wins silently, and a failed second edit's compensation restores state from before the first, undoing a committed change. | L |
 | 21 | A reply created between the delete cascade's scan and its archive survives the parent and becomes permanently invisible. | M |
 | 22 | A reply inherits its parent's position, so a reply written at chapter 40 under a chapter-2 thought is never blurred. | M |
 | 23 | The feed cache is per-process and per-installation. Running more than one worker, or the second member's machine, never invalidates it. | M |
-| 24 | Sorting books raises on any status outside the ordering list — a 500 on `GET /api/books` the day a fifth status is added. | S |
 | 25 | A use case that writes and then returns `Err` does not roll back; only a raised exception does. No current path does it, but one added guard clause would. | S |
 | 26 | `frontend/src/lib/spineScale.js` is imported by nothing but its own test. It duplicates the backend calculation for an optimistic update that does not exist, so its tests assert parity with something no member ever sees. | S |
 

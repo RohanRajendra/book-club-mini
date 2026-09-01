@@ -5,7 +5,16 @@ from __future__ import annotations
 import pytest
 
 from app.adapters.memory import InMemoryUnitOfWork
-from app.application.use_cases.books import AddBook, BookCommand, ListBooks, UpdateBook
+from unittest import mock
+
+from app.application.use_cases import books as books_module
+from app.application.use_cases.books import (
+    STATUS_ORDER,
+    AddBook,
+    BookCommand,
+    ListBooks,
+    UpdateBook,
+)
 from app.domain import errors
 from app.domain.entities import Book
 from app.domain.values import BookId, BookStatus, Position
@@ -37,6 +46,30 @@ def listing(uow):
 async def test_add_book_requires_a_title(add):
     result = await add.execute(BookCommand(title="   "))
     assert isinstance(result.unwrap_err(), errors.TitleRequired)
+
+
+def test_every_status_has_a_place_in_the_ordering():
+    """The book list sorts by status, and a status missing from the ordering
+    used to raise — a 500 on `GET /api/books` the day a fifth is added. It now
+    sorts last, and this is what makes adding one a failing test instead of a
+    surprise in production."""
+    assert set(STATUS_ORDER) == set(BookStatus)
+
+
+async def test_a_status_outside_the_ordering_sorts_last_instead_of_raising(add, listing):
+    """Reached by shortening STATUS_ORDER, not by editing Notion — the mapper
+    maps an unknown Notion status to Upcoming. This is the runtime half of the
+    guard above, and it stands in for the day a fifth status is added to the
+    enum and not to the ordering."""
+    for title, status in (("Zeta", BookStatus.FINISHED), ("Alpha", READING)):
+        await add.execute(BookCommand(title=title, status=status))
+
+    with (
+        mock.patch.object(books_module, "STATUS_ORDER", [READING]),
+        mock.patch.object(books_module, "_STATUS_RANK", {READING: 0}),
+    ):
+        titles = [book.title for book in (await listing.execute()).unwrap()]
+    assert titles == ["Alpha", "Zeta"]
 
 
 class TestBookTextFields:

@@ -14,6 +14,8 @@ normally sends, because someone hand-edited the row.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from app.adapters.notion.mappers import BookMapper, PostMapper
 from app.domain.entities import Book, Post
 from app.domain.values import BookId, BookStatus, MemberName, Position, PostId, PostType
@@ -133,6 +135,37 @@ class TestPostFallbacks:
         page["last_edited_time"] = None
         post = POSTS.to_domain(page)
         assert post.created_at is None and post.edited_at is None
+
+
+class TestTimestampFallbacks:
+    """One bad timestamp is a 500 for the whole feed, not one odd row.
+
+    Sorting compares these, and `sorted` raises on the first pair it cannot
+    compare — so an unparseable value, or a naive one among aware ones, takes
+    the book down.
+    """
+
+    def test_a_timestamp_without_an_offset_is_read_as_utc(self):
+        page = post_page()
+        page["created_time"] = "2026-03-01T12:00:00.000"
+        created = POSTS.to_domain(page).created_at
+        assert created.tzinfo is not None
+        assert created == datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
+
+    def test_an_unparseable_timestamp_becomes_none_rather_than_raising(self):
+        page = post_page()
+        page["created_time"] = "last tuesday"
+        assert POSTS.to_domain(page).created_at is None
+
+    def test_a_non_string_timestamp_becomes_none_rather_than_raising(self):
+        page = post_page()
+        page["created_time"] = 1772366400
+        assert POSTS.to_domain(page).created_at is None
+
+    def test_a_normal_timestamp_still_parses(self):
+        assert POSTS.to_domain(post_page()).created_at == datetime(
+            2026, 3, 1, 12, 0, tzinfo=timezone.utc
+        )
 
 
 class TestPostDeletedFlag:

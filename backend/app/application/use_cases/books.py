@@ -67,8 +67,15 @@ def _too_long(command: BookCommand) -> errors.TextTooLong | None:
     return None
 
 
+#: Position in STATUS_ORDER, by status. A status missing from the ordering
+#: sorts last rather than raising: a 500 on the whole book list is a poor way
+#: to find out that a fifth status was added. The completeness test in
+#: tests/unit/application/test_books.py is what actually catches that.
+_STATUS_RANK = {status: rank for rank, status in enumerate(STATUS_ORDER)}
+
+
 def _sort_key(book: Book) -> tuple[int, str]:
-    return STATUS_ORDER.index(book.status), book.title.casefold()
+    return _STATUS_RANK.get(book.status, len(STATUS_ORDER)), book.title.casefold()
 
 
 async def _posts_beyond(

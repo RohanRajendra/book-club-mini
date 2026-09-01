@@ -133,13 +133,45 @@ class TestPost:
     def test_post_was_edited_is_false_for_a_create_then_block_append(self):
         """Creating a long post is a page write followed by a block append, and
         the append bumps last_edited_time. Without a threshold every post over
-        1900 characters is born showing `edited`."""
-        post = a_post(created_at=NOW, edited_at=NOW + timedelta(milliseconds=800))
+        1900 characters is born showing `edited`.
+
+        This previously described a long post and built a short one. The
+        threshold only ever existed for the second write, and only a long post
+        has one."""
+        post = a_post(
+            has_full_body=True, created_at=NOW, edited_at=NOW + timedelta(seconds=60)
+        )
         assert not post.was_edited
 
     def test_post_was_edited_is_true_after_a_real_edit(self):
         post = a_post(created_at=NOW, edited_at=NOW + timedelta(minutes=5))
         assert post.was_edited
+
+    def test_a_short_post_edited_a_minute_later_shows_as_edited(self):
+        """Notion truncates both timestamps to the minute, so the only gaps
+        that exist are 0, 60, 120... A flat 60-second threshold is `> 60`, so
+        it hid every edit made in the minute after posting. A short post has no
+        second write to protect against."""
+        post = a_post(created_at=NOW, edited_at=NOW + timedelta(seconds=60))
+        assert post.was_edited
+
+    def test_a_long_post_edited_two_minutes_later_still_shows_as_edited(self):
+        post = a_post(
+            has_full_body=True, created_at=NOW, edited_at=NOW + timedelta(seconds=120)
+        )
+        assert post.was_edited
+
+    def test_an_edit_stamped_before_the_creation_is_not_an_edit(self):
+        """Clock skew, or a page duplicated inside Notion. Incoherent
+        timestamps are not evidence that a member changed anything."""
+        post = a_post(created_at=NOW, edited_at=NOW - timedelta(minutes=5))
+        assert not post.was_edited
+
+    def test_an_edit_stamped_before_the_creation_is_not_an_edit_on_a_long_post(self):
+        post = a_post(
+            has_full_body=True, created_at=NOW, edited_at=NOW - timedelta(minutes=5)
+        )
+        assert not post.was_edited
 
     def test_post_was_edited_is_false_when_never_saved(self):
         assert not a_post(created_at=None, edited_at=None).was_edited
