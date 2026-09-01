@@ -126,6 +126,30 @@ class TestFeed:
         assert as_ada.json()["posts"][0]["is_own"] is True
         assert as_grace.json()["posts"][0]["is_own"] is False
 
+    async def test_filtering_the_feed_to_reply_is_refused(self, client):
+        """The filter runs over top-level posts after nesting — filtering in
+        the query would strip replies off their parents — so `?type=Reply`
+        could only ever return an empty feed, and no count in the response
+        explained why."""
+        response = await client.get(f"/api/books/{BOOK.value}/feed?type=Reply")
+        assert response.status_code == 422
+
+    async def test_the_filters_that_are_offered_still_work(self, client):
+        for kind in ("Progress", "Thought", "Question"):
+            response = await client.get(f"/api/books/{BOOK.value}/feed?type={kind}")
+            assert response.status_code == 200, kind
+
+    async def test_view_as_accepts_a_member_whatever_the_case(self, client):
+        """Notion's Member column is typed by hand, and the roster is typed
+        into a config file. `?as=ada` naming the same person as `Ada` must not
+        be a 400."""
+        response = await client.get(f"/api/books/{BOOK.value}/feed?as=ada")
+        assert response.status_code == 200
+
+    async def test_view_as_still_refuses_someone_who_is_not_a_member(self, client):
+        response = await client.get(f"/api/books/{BOOK.value}/feed?as=Bob")
+        assert response.status_code == 400
+
     async def test_post_response_never_includes_the_full_body(self, client):
         await client.post(
             "/api/posts",

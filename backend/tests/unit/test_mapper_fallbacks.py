@@ -121,10 +121,6 @@ class TestPostFallbacks:
         page = post_page(Chapter={"number": 9}, Page={"number": 0})
         assert POSTS.to_domain(page).position == Position(9)
 
-    def test_a_row_with_no_book_relation_maps_to_an_orphan_book_id(self):
-        page = post_page(Book={"relation": []})
-        assert POSTS.to_domain(page).book_id == BookId("orphan")
-
     def test_a_cleared_member_maps_to_unknown(self):
         page = post_page(Member={"select": None})
         assert POSTS.to_domain(page).member == MemberName("Unknown")
@@ -135,6 +131,40 @@ class TestPostFallbacks:
         page["last_edited_time"] = None
         post = POSTS.to_domain(page)
         assert post.created_at is None and post.edited_at is None
+
+
+class TestAPostWithNoBookIsNotInvented:
+    """A post whose Book relation is empty cannot be represented.
+
+    It used to be given the fabricated id `BookId("orphan")` — a value that
+    belongs to no book, breaks the guarantee that an identifier never silently
+    stands in for another, and leaves the row invisible either way, since the
+    feed queries by relation and this one has none.
+    """
+
+    def test_a_post_with_no_book_relation_maps_to_nothing(self):
+        page = post_page()
+        page["properties"]["Book"] = {"relation": []}
+        assert POSTS.to_domain(page) is None
+
+    def test_a_post_with_a_missing_book_property_maps_to_nothing(self):
+        page = post_page()
+        del page["properties"]["Book"]
+        assert POSTS.to_domain(page) is None
+
+    def test_a_post_with_a_book_still_maps(self):
+        assert POSTS.to_domain(post_page()).book_id == BookId("book-1")
+
+    def test_the_fabricated_orphan_id_is_gone(self):
+        """Named because it was a real value in a real database, and anything
+        still reading it would now be reading a book that never existed."""
+        page = post_page()
+        page["properties"]["Book"] = {"relation": []}
+        assert POSTS.to_domain(page) != Post(
+            book_id=BookId("orphan"),
+            member=MemberName("Ada"),
+            type=PostType.THOUGHT,
+        )
 
 
 class TestTimestampFallbacks:

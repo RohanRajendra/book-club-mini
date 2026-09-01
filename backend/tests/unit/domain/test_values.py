@@ -91,3 +91,39 @@ class TestPostType:
         """The values are written into Notion's Type select verbatim."""
         assert PostType.PROGRESS.value == "Progress"
         assert PostType.REPLY.value == "Reply"
+
+
+class TestMemberNameIsCaseInsensitive:
+    """Notion's Member column is a free-text select, typed by hand.
+
+    A roster of `Ada` against a Notion value of `ada` made two people. The
+    concrete harm: your own posts are blurred back at you, because the spoiler
+    rule asks whether the author is the viewer and a string comparison said no.
+    """
+
+    def test_names_differing_only_by_case_are_the_same_member(self):
+        assert MemberName("Ada") == MemberName("ada")
+
+    def test_they_hash_alike_so_they_are_one_key_in_a_position_map(self):
+        """PositionResolver keys a dict by member. Two spellings meant two
+        entries, and the roster lookup found neither."""
+        assert len({MemberName("Ada"), MemberName("ADA")}) == 1
+        assert {MemberName("Ada"): 1}[MemberName("aDa")] == 1
+
+    def test_a_roster_membership_test_ignores_case(self):
+        assert MemberName("ada") in [MemberName("Ada"), MemberName("Grace")]
+
+    def test_different_names_are_still_different(self):
+        assert MemberName("Ada") != MemberName("Grace")
+
+    def test_surrounding_whitespace_still_distinguishes_nothing_else(self):
+        """Case is the only thing folded. A name is not otherwise normalised,
+        so this documents where the leniency stops."""
+        assert MemberName("Ada ") != MemberName("Ada")
+
+    def test_the_original_spelling_is_kept_for_display(self):
+        assert MemberName("aDa").value == "aDa"
+        assert str(MemberName("aDa")) == "aDa"
+
+    def test_a_member_name_is_still_not_a_post_id(self):
+        assert MemberName("Ada") != PostId("Ada")

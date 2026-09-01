@@ -195,6 +195,25 @@ class TestSpoilerFlags:
         assert all(not fp.is_spoiler for fp in feed.posts)
 
 
+def test_your_own_posts_are_not_blurred_when_notion_spells_your_name_differently():
+    """The harm behind case-sensitive member names.
+
+    A post the viewer wrote is never a spoiler for them. With `Ada` in the
+    roster and `ada` in Notion the comparison said two different people, so a
+    member's own posts came back blurred and their position was attributed to
+    nobody."""
+    posts = [
+        progress("p", MemberName("ada"), 40, 1),
+        post("t", minute=2, member=MemberName("ada"), position=Position(40)),
+    ]
+    feed = assembler(ChapterFirstSpoilerPolicy()).assemble(
+        make_book(total_chapters=None), posts, ADA
+    )
+    assert feed.positions[ADA] == Position(40)
+    assert [entry.is_spoiler for entry in feed.posts] == [False, False]
+    assert all(entry.is_own for entry in feed.posts)
+
+
 class TestOddTimestampsDoNotTakeTheFeedDown:
     """Sorting is the one place where a single bad row breaks everything.
 

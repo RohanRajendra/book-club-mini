@@ -6,6 +6,8 @@ domain field is renamed. Conversion is explicit, in one direction, in one place.
 
 from __future__ import annotations
 
+from enum import Enum
+
 from datetime import datetime
 
 from typing import Annotated
@@ -136,6 +138,21 @@ MAX_PAGE = 100_000
 #: stripping is a 422 — the value object raises on a blank id, and that
 #: exception reaching the router used to surface as a 500.
 Identifier = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class FeedFilter(str, Enum):
+    """The post types a feed can be filtered to.
+
+    `Reply` is deliberately absent. The filter runs over top-level posts after
+    nesting — filtering in the query would strip replies off their parents — so
+    `?type=Reply` could only ever return an empty feed, with no count in the
+    response to explain why. A test pins this to the set the feed actually
+    counts, so the two cannot drift.
+    """
+
+    PROGRESS = "Progress"
+    THOUGHT = "Thought"
+    QUESTION = "Question"
 
 
 class BookRequest(BaseModel):

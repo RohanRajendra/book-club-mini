@@ -148,6 +148,25 @@ async def test_pagination_stops_at_the_page_cap_and_warns(uow, stub, caplog):
     assert "page cap" in caplog.text
 
 
+async def test_a_row_with_no_book_relation_is_skipped_not_returned_as_none(
+    uow, stub, caplog
+):
+    """`list_for_book` can never see one — it filters on that very relation.
+    `list_replies` filters on the parent instead, so it can, and a `None` in
+    that list is an AttributeError inside the delete cascade rather than a
+    post that renders oddly."""
+    async with uow:
+        parent = await uow.posts.add(make_post(id=None, book_id=BOOK, member=ADA))
+        reply = await uow.posts.add(make_reply(parent, ADA, id=None))
+        stub.pages[reply.id.value]["properties"]["Book"] = {"relation": []}
+
+        with caplog.at_level("WARNING"):
+            listed = await uow.posts.list_replies(parent.id)
+
+    assert listed == []
+    assert "no book relation" in caplog.text
+
+
 async def test_the_delete_cascade_reaches_a_reply_beyond_the_page_cap(uow, stub):
     """The cascade found replies by scanning `list_for_book`, which stops at
     500 rows. A reply older than that survived its parent and then vanished:

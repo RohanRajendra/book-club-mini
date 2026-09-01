@@ -20,6 +20,7 @@ from app.composition import Container
 from app.domain.values import BookId, MemberName, PostId, PostType
 from app.interface.errors import raise_for
 from app.interface.schemas import (
+    FeedFilter,
     BodyResponse,
     BookRequest,
     BookResponse,
@@ -119,7 +120,7 @@ async def update_book(
 @router.get("/books/{book_id}/feed", response_model=FeedResponse)
 async def get_feed(
     book_id: BookIdPath,
-    type: PostType | None = Query(default=None),
+    type: FeedFilter | None = Query(default=None),
     as_member: str | None = Query(default=None, alias="as"),
     container: Container = Depends(container_of),
 ):
@@ -127,15 +128,24 @@ async def get_feed(
     drives the spoiler flags — it never changes post attribution."""
     viewer = container.member
     if as_member is not None:
-        if as_member not in container.settings.members:
+        # Compared as MemberName, which folds case: the roster is typed into a
+        # config file and Notion's Member column is typed by hand, so `ada` and
+        # `Ada` naming one person must not be a 400.
+        requested = MemberName(as_member)
+        roster = [MemberName(name) for name in container.settings.members]
+        if requested not in roster:
             raise HTTPException(
                 status_code=400, detail=f"{as_member} is not in this club."
             )
-        viewer = MemberName(as_member)
+        viewer = requested
 
     feed = unwrap(
         await container.get_feed().execute(
-            FeedQuery(book_id=book_id, viewer=viewer, post_type=type)
+            FeedQuery(
+                book_id=book_id,
+                viewer=viewer,
+                post_type=PostType(type.value) if type else None,
+            )
         )
     )
     return FeedResponse.of(feed)

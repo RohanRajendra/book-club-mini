@@ -92,7 +92,10 @@ class BookMapper:
 
 
 class PostMapper:
-    def to_domain(self, page: dict[str, Any]) -> Post:
+    def to_domain(self, page: dict[str, Any]) -> Post | None:
+        """`None` for a row this app cannot represent — see the book relation
+        below. Every other oddity is forgiven, because the alternative is a
+        500 on a feed that one hand-edit made unreadable."""
         properties = page.get("properties", {})
 
         raw_type = rich_text.select_name(properties, POST_TYPE)
@@ -122,11 +125,18 @@ class PostMapper:
         if post_type is PostType.PROGRESS and position is None:
             post_type = PostType.THOUGHT
 
+        # A post with no book cannot be represented, and inventing an id for
+        # it was worse than dropping it: `BookId("orphan")` names no book,
+        # breaks the guarantee that an identifier never silently stands in for
+        # another, and leaves the row invisible anyway — the feed queries by
+        # relation, and this one has none. The repositories log and skip.
         book_ids = rich_text.relation_ids(properties, POST_BOOK)
+        if not book_ids:
+            return None
 
         return Post(
             id=PostId(page["id"]),
-            book_id=BookId(book_ids[0]) if book_ids else BookId("orphan"),
+            book_id=BookId(book_ids[0]),
             member=MemberName(
                 rich_text.select_name(properties, POST_MEMBER) or "Unknown"
             ),

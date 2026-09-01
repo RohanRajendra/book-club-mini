@@ -276,6 +276,38 @@ backend and is listed in Tier 3 as #26 rather than deleted.
 
 ## Tier 3 — latent, narrow, or needs an out-of-band trigger
 
+### 14, 15 & 16. Identifiers invented, folded, and offered in error — **fixed**
+
+**#14.** A post whose Book relation is empty was given the fabricated id
+`BookId("orphan")`. That names no book, breaks the guarantee that an identifier
+never silently stands in for another, and left the row invisible anyway, since
+the feed queries by that relation. The mapper now returns `None` for a row it
+cannot represent and the repositories log and skip it. The row was already
+invisible; what changes is that the owner can find out why.
+
+**#15.** `MemberName` compared by exact string, so a roster of `Ada` against a
+Notion value of `ada` was two people. The concrete harm: the spoiler rule asks
+whether the author is the viewer, the comparison said no, and **your own posts
+came back blurred at you** — with your position attributed to nobody. Comparison
+now folds case while `value` keeps the spelling it was given, so display is
+untouched. The same fold applies to *View as*, whose roster check compared raw
+strings.
+
+**#16.** `?type=Reply` was accepted and could only ever return an empty feed:
+the filter runs over top-level posts after nesting, because filtering in the
+query would strip replies off their parents. The offered filters are now their
+own enum, answering `422` for `Reply`, and a test pins that enum to the set the
+feed actually counts so the two cannot drift.
+
+Eight mutations, all killed. The survivor on the first pass was the repository's
+skip: `list_for_book` can never see an unrepresentable row, since it filters on
+the very relation that is missing, but `list_replies` filters on the parent and
+can — where a `None` in the list is an `AttributeError` inside the delete
+cascade.
+
+One more test asserted the defect and was removed rather than inverted:
+`test_a_row_with_no_book_relation_maps_to_an_orphan_book_id`.
+
 ### 17, 18 & 24. One bad row could take a whole read path down — **fixed**
 
 Three separate defects, one shape: a value that should make one row look odd
@@ -368,9 +400,6 @@ boundary floor, which no emoji test reached.
 
 | # | Issue | Cost |
 | --- | --- | --- |
-| 14 | Posts whose book relation is empty are given the fabricated id `BookId("orphan")` — invisible forever, a latent collision, and a hole in the guarantee that identifiers never silently substitute. | S |
-| 15 | A member name read from Notion is never checked against the roster and compares by exact string. Roster `Ada` against Notion `ada` is two people, and your own posts get blurred back at you. | S |
-| 16 | `?type=Reply` is an accepted filter that always returns an empty feed, with no `reply` count to explain why. | S |
 | 19 | Two concurrent "set currently reading" operations both read before either writes, leaving two current books, never detected or repaired. | M |
 | 20 | `EditPost` is an unguarded read-modify-write. Last write wins silently, and a failed second edit's compensation restores state from before the first, undoing a committed change. | L |
 | 21 | A reply created between the delete cascade's scan and its archive survives the parent and becomes permanently invisible. | M |

@@ -62,3 +62,16 @@ def test_no_cors_middleware_anywhere_in_the_codebase():
             if named or imported:
                 offenders.append(path.name)
     assert not offenders
+
+
+def test_the_feed_filter_offers_exactly_what_the_feed_counts():
+    """`?type=Reply` was accepted and could only ever return an empty feed,
+    with no `reply` count to explain why. The offered filters and the counted
+    types are now one set, so a type added to one and not the other is a
+    failing test rather than a filter that silently returns nothing."""
+    from app.application.feed import COUNT_KEYS
+    from app.interface.schemas import FeedFilter
+
+    assert {member.value for member in FeedFilter} == {
+        post_type.value for post_type in COUNT_KEYS
+    }
