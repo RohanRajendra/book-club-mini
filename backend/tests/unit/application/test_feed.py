@@ -271,6 +271,59 @@ class TestOddTimestampsDoNotTakeTheFeedDown:
         assert feed.positions[ADA] == Position(9)
 
 
+class TestARepliesPositionIsItsParents:
+    """A known limitation, pinned rather than fixed.
+
+    A reply copies its parent's position, so a reply written at chapter 40
+    under a chapter-2 thought carries chapter 2 and is never blurred. The
+    spoiler machinery is not the problem — replies are flagged independently —
+    the position fed to it is.
+
+    Changing it means deciding where a reply's position comes from: the
+    replier's own progress (a lookup on a path that has none today) or a
+    chapter field on the reply box (new UI on what is currently one text box).
+    Kept deliberately, because a thread reads as one conversation and a thread
+    that half-blurs is harder to follow than one that does not blur at all.
+    """
+
+    def test_a_reply_carries_its_parents_chapter_not_its_authors(self):
+        parent = post("p", minute=1, member=GRACE, position=Position(2))
+        reply = make_reply(parent, ADA, id=PostId("r"), created_at=at_minute(2))
+        feed = assembler(ChapterFirstSpoilerPolicy()).assemble(
+            make_book(total_chapters=None), [parent, reply], GRACE
+        )
+        assert feed.posts[0].replies[0].post.position == Position(2)
+
+    def test_so_a_reply_about_chapter_40_is_not_blurred_for_a_reader_at_chapter_2(self):
+        """The concrete consequence. Grace is at chapter 2; Ada replies from
+        chapter 40 and mentions what happens there."""
+        parent = post("p", minute=1, member=GRACE, position=Position(2))
+        reply = make_reply(parent, ADA, id=PostId("r"), created_at=at_minute(2))
+        feed = assembler(ChapterFirstSpoilerPolicy()).assemble(
+            make_book(total_chapters=None),
+            [progress("g", GRACE, 2, 0), parent, reply],
+            GRACE,
+        )
+        assert feed.posts[0].replies[0].is_spoiler is False
+
+    def test_replies_are_still_flagged_independently_of_their_parent(self):
+        """The machinery works; only the position it is given is inherited. If
+        a reply ever gets its own position, this is what makes blurring it
+        possible without touching the assembler."""
+        parent = post("p", minute=1, member=GRACE, position=Position(2))
+        reply = replace(
+            make_reply(parent, ADA, id=PostId("r"), created_at=at_minute(2)),
+            position=Position(40),
+        )
+        feed = assembler(ChapterFirstSpoilerPolicy()).assemble(
+            make_book(total_chapters=None),
+            [progress("g", GRACE, 2, 0), parent, reply],
+            GRACE,
+        )
+        assert feed.posts[0].is_spoiler is False
+        assert feed.posts[0].replies[0].is_spoiler is True
+
+
 class TestScale:
     def test_scale_is_estimated_when_the_book_has_no_total_chapters(self):
         book = make_book(total_chapters=None)

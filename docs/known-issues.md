@@ -443,12 +443,69 @@ Eleven mutations, all killed. The survivor on the first pass was the word-
 boundary floor, which no emoji test reached.
 
 
+Everything in this tier is now fixed except three items kept deliberately, and
+one awaiting a decision. Each of the three has tests pinning the current
+behaviour, so a future change to any of them is a choice rather than an
+accident.
+
+---
+
+## Kept deliberately
+
+### 20. Concurrent edits are unguarded — **kept, pinned**
+
+`EditPost` reads a post, builds the new version, and writes it. Two overlapping
+edits both read the same original and the second write wins, silently.
+
+Detecting it needs a conditional write — "update only if the row still looks the
+way I read it" — and Notion has no such operation. The nearest approximation is
+re-reading `last_edited_time` before writing, which narrows the window without
+closing it, costs a request on every edit, and cannot work anyway: Notion
+truncates that timestamp to the minute (#9), so it cannot distinguish two edits
+within the same minute, which is exactly when this happens.
+
+**The audit's second claim here was wrong.** It said a failed second edit's
+compensation restores state from *before the first*, undoing a committed change.
+It does not. `CompensationStack.clear()` empties the captured-properties set
+along with the stack, `__aenter__` calls it, and every use-case invocation gets a
+fresh unit of work from the factory — so the second edit captures the state the
+first one committed. Checked by running it: a failed second edit leaves the
+*first* edit's text in place. There is now a test pinning that, because
+compensation reaching back across a commit would silently destroy work, and the
+audit shows how easy it is to believe it already does.
+
+### 22. A reply's position is its parent's — **kept, pinned**
+
+A reply written at chapter 40 under a chapter-2 thought carries chapter 2 and is
+never blurred. The spoiler machinery is not at fault — replies are flagged
+independently, and a test pins that — only the position handed to it is
+inherited.
+
+Changing it means deciding where a reply's position comes from: the replier's
+own progress, which needs a lookup on a path that has none today, or a chapter
+field on the reply box, which is new UI on what is currently one text box. Kept
+because a thread reads as one conversation, and a thread that half-blurs is
+harder to follow than one that does not blur at all.
+
+### 23. The feed cache is per-process — **kept, pinned**
+
+Invalidation reaches one instance. A second worker, or the other member's
+machine running its own copy against the same workspace, keeps serving its own
+twenty-second-old view after a write.
+
+Fixing it properly means shared state — a cache both processes can reach, or a
+signal between them — and neither belongs in an app two people run for
+themselves. The failure is bounded: it self-heals in twenty seconds, and a test
+pins that bound. Written down because "I posted and they cannot see it" is the
+first thing that looks like data loss and is not.
+
+---
+
+## Awaiting a decision
+
 | # | Issue | Cost |
 | --- | --- | --- |
-| 20 | `EditPost` is an unguarded read-modify-write. Last write wins silently, and a failed second edit's compensation restores state from before the first, undoing a committed change. | L |
-| 22 | A reply inherits its parent's position, so a reply written at chapter 40 under a chapter-2 thought is never blurred. | M |
-| 23 | The feed cache is per-process and per-installation. Running more than one worker, or the second member's machine, never invalidates it. | M |
-| 26 | `frontend/src/lib/spineScale.js` is imported by nothing but its own test. It duplicates the backend calculation for an optimistic update that does not exist, so its tests assert parity with something no member ever sees. | S |
+| 26 | `frontend/src/lib/spineScale.js` is imported by nothing but its own test. It duplicates the backend calculation for an optimistic update that does not exist, so its tests assert parity with something no member ever sees. Kept in parity with the backend for now; deleting it is the owner's call. | S |
 
 ---
 

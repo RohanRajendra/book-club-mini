@@ -270,3 +270,57 @@ class TestCacheInvalidationDuringAnInFlightRead:
         await cached.execute(query)
         await cached.execute(query)
         assert gated.calls == 1
+
+
+class TestTheCacheIsPerProcess:
+    """A known limitation, pinned rather than fixed.
+
+    `CachingFeedQuery` holds its entries in an instance attribute and the
+    container builds one per process. Invalidation reaches that instance and
+    nothing else, so a second worker — or the other member's machine, running
+    its own copy against the same Notion workspace — keeps serving its own
+    twenty-second-old view of the feed after a write.
+
+    Fixing it properly means shared state: a cache both processes can reach, or
+    a signal between them. Neither belongs in an app two people run for
+    themselves, and the failure self-heals in twenty seconds. What matters is
+    that it is written down, because "I posted and they cannot see it" is the
+    first thing that looks like data loss and is not.
+    """
+
+    @pytest.fixture
+    def clock(self):
+        return Clock()
+
+    async def test_invalidating_one_instance_leaves_another_serving_stale_data(
+        self, get_feed, clock
+    ):
+        first, second = CountingFeed(get_feed), CountingFeed(get_feed)
+        mine = CachingFeedQuery(first, clock=clock)
+        theirs = CachingFeedQuery(second, clock=clock)
+        query = FeedQuery(book_id=BOOK, viewer=ADA)
+
+        await mine.execute(query)
+        await theirs.execute(query)
+        mine.invalidate()
+
+        await mine.execute(query)
+        await theirs.execute(query)
+
+        assert first.calls == 2, "the writer's own process sees its write"
+        assert second.calls == 1, "the other process does not"
+
+    async def test_the_other_process_catches_up_when_the_ttl_expires(
+        self, get_feed, clock
+    ):
+        """Which is what keeps this a limitation rather than a defect: it is
+        bounded, and the bound is twenty seconds."""
+        counting = CountingFeed(get_feed)
+        theirs = CachingFeedQuery(counting, clock=clock)
+        query = FeedQuery(book_id=BOOK, viewer=ADA)
+
+        await theirs.execute(query)
+        clock.advance(21)
+        await theirs.execute(query)
+
+        assert counting.calls == 2

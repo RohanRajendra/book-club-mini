@@ -358,6 +358,62 @@ class TestDeletePost:
         assert listed == {parent.id, reply.id}
 
 
+class TestConcurrentEditsAreNotGuarded:
+    """A known limitation, pinned rather than fixed.
+
+    `EditPost` reads a post, builds the new version from the command, and
+    writes it. Two edits that overlap both read the same original and the
+    second write wins, silently — the first member's change is gone with no
+    error anywhere.
+
+    Detecting it needs a conditional write: "update only if the row still looks
+    the way I read it". Notion has no such operation. The nearest approximation
+    is re-reading `last_edited_time` before writing, which narrows the window
+    without closing it and costs a request on every edit — and Notion truncates
+    that timestamp to the minute (see the resolver), so it cannot even
+    distinguish two edits within the same minute, which is exactly when this
+    happens.
+
+    Two members editing the same post within seconds of each other is not a
+    workflow this app has. Recorded so the next person meets a decision rather
+    than a surprise.
+    """
+
+    @pytest.fixture
+    async def existing(self, seeded):
+        async with seeded:
+            post = await seeded.posts.add(
+                make_post(id=None, book_id=BOOK, member=ADA, body_preview="Original.")
+            )
+            await seeded.commit()
+        return post
+
+    async def test_the_second_write_wins_and_the_first_is_lost(self, seeded, existing):
+        edit = EditPost(uow_factory=lambda: seeded)
+
+        # Both read the same original, as two overlapping requests would.
+        first = EditPostCommand(post_id=existing.id, member=ADA, body="Ada's version.")
+        second = EditPostCommand(post_id=existing.id, member=ADA, body="Other version.")
+        await edit.execute(first)
+        await edit.execute(second)
+
+        async with seeded:
+            stored = await seeded.posts.get(existing.id)
+        assert stored.body_preview == "Other version."
+
+    async def test_nothing_reports_that_a_change_was_overwritten(self, seeded, existing):
+        """The part that makes it a limitation rather than a policy: it is
+        silent. A member has no way to learn their edit was discarded."""
+        edit = EditPost(uow_factory=lambda: seeded)
+        await edit.execute(
+            EditPostCommand(post_id=existing.id, member=ADA, body="First.")
+        )
+        result = await edit.execute(
+            EditPostCommand(post_id=existing.id, member=ADA, body="Second.")
+        )
+        assert result.is_ok()
+
+
 class TestGetPostBody:
     @pytest.fixture
     def get_body(self, seeded):

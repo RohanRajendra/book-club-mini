@@ -13,6 +13,7 @@ import respx
 
 from app.adapters.notion.http import BASE_URL, NotionApiError, NotionHttpClient, TokenBucket
 from app.adapters.notion.unit_of_work import NotionUnitOfWork
+from app.application.use_cases.edit_post import EditPost, EditPostCommand
 from app.domain.values import BookId
 from tests.builders import ADA, GRACE, long_body, make_post, make_reply
 from tests.integration.notion_stub import BOOKS_DS, POSTS_DS, NotionStub
@@ -212,3 +213,60 @@ async def test_an_exception_in_the_scope_triggers_rollback_automatically(uow, st
             raise RuntimeError("boom")
 
     assert all(page["in_trash"] for page in stub.pages.values())
+
+
+async def test_a_failed_edit_restores_the_previous_edit_not_the_original(stub):
+    """The audit claimed a failed second edit's compensation restores state
+    from *before the first*, undoing a committed change. It does not, and this
+    pins why: `clear()` empties the captured-properties set as well as the
+    stack, and `__aenter__` calls it. Each use-case invocation gets a fresh
+    unit of work from the factory, so the second edit captures the state the
+    first one committed.
+
+    Worth a test rather than a note, because the failure it guards against —
+    compensation reaching back across a commit — would silently destroy work
+    and the audit shows how easy it is to believe it already does."""
+    def build():
+        timing = NoWait()
+        client = NotionHttpClient(
+            token="ntn_test",
+            client=httpx.AsyncClient(base_url=BASE_URL),
+            bucket=TokenBucket(clock=timing, sleep=timing.sleep),
+            sleep=timing.sleep,
+        )
+        return NotionUnitOfWork(client, BOOKS_DS, POSTS_DS)
+
+    long_original = "Original body " * 200
+    async with build() as seed:
+        post = await seed.posts.add(
+            make_post(
+                id=None,
+                book_id=BOOK,
+                member=ADA,
+                body_preview=long_original[:1900],
+                has_full_body=True,
+            ),
+            long_original,
+        )
+        await seed.commit()
+
+    edit = EditPost(uow_factory=build)
+    first = "First edit " * 200
+    assert (
+        await edit.execute(
+            EditPostCommand(post_id=post.id, member=ADA, body=first)
+        )
+    ).is_ok()
+
+    # Fails after the properties are written, so compensation has work to do.
+    stub.fail_next["patch_block"] = 400
+    with pytest.raises(NotionApiError):
+        await edit.execute(
+            EditPostCommand(post_id=post.id, member=ADA, body="Second edit " * 200)
+        )
+
+    async with build() as uow:
+        stored = await uow.posts.get(post.id)
+    assert stored.body_preview.startswith("First edit ")
+    assert "Original body" not in stored.body_preview
+    assert "Second edit" not in stored.body_preview
