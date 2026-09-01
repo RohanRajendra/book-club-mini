@@ -7,6 +7,8 @@ chapter count means looking something up before you can use the app.
 
 from __future__ import annotations
 
+import logging
+
 from dataclasses import dataclass, replace
 from typing import Callable
 
@@ -17,6 +19,8 @@ from app.domain.result import Err, Ok, Result
 from app.domain.text import utf16_length
 from app.domain.values import BookId, BookStatus
 from app.ports.unit_of_work import UnitOfWork
+
+logger = logging.getLogger(__name__)
 
 #: The order the book dropdown groups by. Notion cannot sort by select option
 #: order, so this happens in Python.
@@ -115,13 +119,57 @@ async def _pause_the_current_book(uow: UnitOfWork, keeping: BookId | None) -> No
 
 
 class ListBooks:
+    """Lists books, and repairs the one invariant a race can break.
+
+    `_pause_the_current_book` reads every book and then writes, so two
+    concurrent "set currently reading" calls both read before either writes and
+    both survive. The app offers no way to *express* two current books — the
+    spine and the default book each assume one — so the state is unreachable by
+    intent and, until now, unrepairable once reached.
+
+    The repair writes rather than only adjusting what is displayed. Notion is
+    the source of truth and the owner reads it directly, so an app that quietly
+    showed one current book while the workspace held two would be the worse
+    failure. A healthy list writes nothing.
+    """
+
     def __init__(self, uow_factory: Callable[[], UnitOfWork]) -> None:
         self._uow_factory = uow_factory
 
     async def execute(self) -> Result[list[Book]]:
         uow = self._uow_factory()
         async with uow:
-            return Ok(sorted(await uow.books.list_all(), key=_sort_key))
+            books = sorted(await uow.books.list_all(), key=_sort_key)
+            current = [
+                book for book in books
+                if book.status is BookStatus.CURRENTLY_READING
+            ]
+            if len(current) <= 1:
+                return Ok(books)
+
+            # Which one stays is arbitrary — nothing recorded says which was
+            # set most recently — so it is the one the member already sees
+            # first. Restoring the invariant is what matters; re-picking is one
+            # click. Paused for the same reason the write path pauses: the app
+            # cannot tell whether a book was finished or set aside.
+            logger.warning(
+                "%d books were Currently Reading; keeping %r and pausing the rest",
+                len(current),
+                current[0].title,
+            )
+            demoted = {
+                book.id: replace(book, status=BookStatus.PAUSED)
+                for book in current[1:]
+            }
+            for book in demoted.values():
+                await uow.books.update(book)
+            await uow.commit()
+
+            return Ok(
+                sorted(
+                    (demoted.get(book.id, book) for book in books), key=_sort_key
+                )
+            )
 
 
 class AddBook:

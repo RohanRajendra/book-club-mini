@@ -180,6 +180,7 @@ async def test_the_delete_cascade_reaches_a_reply_beyond_the_page_cap(uow, stub)
             await uow.posts.add(make_post(id=None, book_id=BOOK))
 
         assert parent.id not in {post.id for post in await uow.posts.list_for_book(BOOK)}
+        await uow.commit()
 
     result = await DeletePost(uow_factory=lambda: uow).execute(
         DeletePostCommand(post_id=parent.id, member=ADA)
@@ -210,6 +211,7 @@ async def test_a_long_body_becomes_one_block_not_many(uow, stub):
             make_post(id=None, book_id=BOOK, body_preview=body[:1900], has_full_body=True),
             body,
         )
+        await uow.commit()
     assert len(stub.blocks[post.id.value]) == 1
 
 
@@ -278,6 +280,7 @@ class TestUpdateTransitions:
                 self.rewrite(post, preview=second[:1900], has_full=True), second
             )
             assert await uow.posts.get_full_body(post.id) == second
+            await uow.commit()
 
         assert f"/blocks/{block_id}" in stub.paths("PATCH")
         assert len(stub.blocks[post.id.value]) == 1
@@ -314,9 +317,11 @@ async def test_archive_falls_back_to_archived_when_in_trash_is_rejected(uow, stu
         stub.requests.clear()
         await uow.posts.archive(post.id)
 
-    payloads = [body for verb, path, body in stub.requests if verb == "PATCH"]
-    assert payloads == [{"in_trash": True}, {"archived": True}]
-    assert stub.pages[post.id.value]["in_trash"] is True
+        # Asserted inside the scope: leaving it uncommitted now replays the
+        # compensation stack, whose own PATCHes would drown these two.
+        payloads = [body for verb, path, body in stub.requests if verb == "PATCH"]
+        assert payloads == [{"in_trash": True}, {"archived": True}]
+        assert stub.pages[post.id.value]["in_trash"] is True
 
 
 async def test_an_archive_failure_that_is_not_a_400_is_not_retried_as_archived(uow, stub):
@@ -331,9 +336,9 @@ async def test_an_archive_failure_that_is_not_a_400_is_not_retried_as_archived(u
         with pytest.raises(NotionApiError):
             await uow.posts.archive(post.id)
 
-    assert [body for verb, path, body in stub.requests if verb == "PATCH"] == [
-        {"in_trash": True}
-    ]
+        assert [body for verb, path, body in stub.requests if verb == "PATCH"] == [
+            {"in_trash": True}
+        ]
 
 
 async def test_getting_a_missing_page_returns_none_rather_than_raising(uow):

@@ -176,6 +176,28 @@ class UnitOfWorkContract:
             listed = await uow.posts.list_for_book(stored.book_id)
             assert [post.is_deleted for post in listed] == [False]
 
+    async def test_leaving_the_scope_without_committing_discards_the_writes(
+        self, uow
+    ):
+        """Only an exception used to trigger rollback. A use case that wrote and
+        then returned `Err` — one added guard clause away — left those writes
+        durable and unannounced, which is the half-applied state the unit of
+        work exists to prevent."""
+        async with uow:
+            stored = await uow.posts.add(make_post(id=None))
+
+        async with uow:
+            assert await uow.posts.list_for_book(stored.book_id) == []
+
+    async def test_committing_still_keeps_the_writes(self, uow):
+        async with uow:
+            stored = await uow.posts.add(make_post(id=None))
+            await uow.commit()
+
+        async with uow:
+            listed = await uow.posts.list_for_book(stored.book_id)
+            assert [post.id for post in listed] == [stored.id]
+
     async def test_posts_sharing_a_created_at_are_listed_newest_first(
         self, tied_uow
     ):

@@ -276,6 +276,51 @@ backend and is listed in Tier 3 as #26 rather than deleted.
 
 ## Tier 3 — latent, narrow, or needs an out-of-band trigger
 
+### 19, 21 & 25. Writes that survived what should have undone them — **fixed**
+
+**#25.** `__aexit__` rolled back only when an exception passed through, so a use
+case that wrote and then returned `Err` left those writes durable and
+unannounced. No current path did it; one added guard clause would have. The port
+now rolls back **unless the scope committed**, which is a property of the port
+rather than a convention each adapter remembers: `commit` is the base class's
+and records the fact, and implementations override `_commit`.
+
+Five integration tests were relying on the old behaviour — writes surviving a
+scope that never committed — and needed either a commit or an assertion moved
+inside the scope. That is what the defect looked like from the inside.
+
+While pinning it, one thing turned out to be worth stating rather than changing:
+an exception *after* a commit does not roll back. Both adapters discard their
+undo record at commit, so there is nothing left to undo. The corollary — writes
+made after a commit inside the same scope are covered by nothing — is now
+written down.
+
+**#21.** A reply created between the cascade's scan and the parent's archive
+survived it, then vanished, because feed assembly drops a reply whose parent is
+gone. The cascade now looks a second time after archiving the parent. Since a
+deleted parent already refuses new replies (#7), that closes the window for
+everything except a create already in flight. One extra query on a rare
+operation.
+
+**#19.** `_pause_the_current_book` reads every book and then writes, so two
+concurrent "set currently reading" calls both survive. The app offers no way to
+*express* two current books — the spine and the default book each assume one —
+so the state was unreachable by intent and unrepairable once reached.
+`ListBooks` now detects it and demotes the extras to Paused.
+
+The repair **writes** rather than only adjusting what is displayed. Notion is the
+source of truth and the owner reads it directly, so an app quietly showing one
+current book while the workspace held two would be the worse failure. Which book
+stays is arbitrary — nothing recorded says which was set most recently — so it
+is the one the member already sees first; re-picking is one click.
+
+Ten mutations, all killed. Two survived the first pass. One was equivalent for
+both current adapters and still worth pinning, since it breaks the port's
+contract for any future backend whose rollback is not a no-op after commit. The
+other was real: the repair firing on a *healthy* list, which commits, which
+fires the `on_commit` hooks, which invalidates the feed cache — on every book
+list, which is most page loads.
+
 ### 14, 15 & 16. Identifiers invented, folded, and offered in error — **fixed**
 
 **#14.** A post whose Book relation is empty was given the fabricated id
@@ -400,12 +445,9 @@ boundary floor, which no emoji test reached.
 
 | # | Issue | Cost |
 | --- | --- | --- |
-| 19 | Two concurrent "set currently reading" operations both read before either writes, leaving two current books, never detected or repaired. | M |
 | 20 | `EditPost` is an unguarded read-modify-write. Last write wins silently, and a failed second edit's compensation restores state from before the first, undoing a committed change. | L |
-| 21 | A reply created between the delete cascade's scan and its archive survives the parent and becomes permanently invisible. | M |
 | 22 | A reply inherits its parent's position, so a reply written at chapter 40 under a chapter-2 thought is never blurred. | M |
 | 23 | The feed cache is per-process and per-installation. Running more than one worker, or the second member's machine, never invalidates it. | M |
-| 25 | A use case that writes and then returns `Err` does not roll back; only a raised exception does. No current path does it, but one added guard clause would. | S |
 | 26 | `frontend/src/lib/spineScale.js` is imported by nothing but its own test. It duplicates the backend calculation for an optimistic update that does not exist, so its tests assert parity with something no member ever sees. | S |
 
 ---

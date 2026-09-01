@@ -286,6 +286,50 @@ class TestDeletePost:
             listed = await seeded.posts.list_for_book(BOOK)
         assert [post.id for post in listed] == [parent.id]
 
+    async def test_a_reply_created_during_the_cascade_is_still_archived(
+        self, seeded, parent
+    ):
+        """A reply written between the scan and the parent's archive survived
+        it, and then vanished — feed assembly drops a reply whose parent is
+        gone.
+
+        Creating a reply now fails once the parent reads as deleted, so a
+        second look after the parent is archived closes the gap for everything
+        except a create already in flight."""
+        late_reply: list = []
+
+        class ArchivingUow:
+            """The real unit of work, with a reply appearing at the moment the
+            parent is archived."""
+
+            def __init__(self, inner):
+                self._inner = inner
+                self.posts = _LateReplyPosts(inner, parent, late_reply)
+                self.books = inner.books
+                self.on_commit = inner.on_commit
+
+            async def __aenter__(self):
+                await self._inner.__aenter__()
+                return self
+
+            async def __aexit__(self, *exc):
+                return await self._inner.__aexit__(*exc)
+
+            async def commit(self):
+                await self._inner.commit()
+
+            async def rollback(self):
+                await self._inner.rollback()
+
+        result = await DeletePost(
+            uow_factory=lambda: ArchivingUow(seeded)
+        ).execute(DeletePostCommand(post_id=parent.id, member=ADA))
+
+        assert late_reply, "the test did not actually inject a reply"
+        assert result.unwrap() == 2
+        async with seeded:
+            assert await seeded.posts.list_for_book(BOOK) == []
+
     async def test_a_failure_partway_through_triggers_compensation(
         self, delete, seeded, parent
     ):
@@ -444,6 +488,32 @@ class TestEditPostChapterBounds:
             EditPostCommand(post_id=post.id, member=ADA, body="Revised.", chapter=3)
         )
         assert isinstance(result.unwrap_err(), errors.BookNotFound)
+
+
+class _LateReplyPosts:
+    """Wraps the post repository so a reply appears mid-cascade.
+
+    The window the cascade leaves open is between listing the replies and
+    archiving the parent, so the reply is created at the moment the parent is
+    archived — the last instant it can still be missed.
+    """
+
+    def __init__(self, uow, parent, recorded):
+        self._uow = uow
+        self._parent = parent
+        self._recorded = recorded
+
+    def __getattr__(self, name):
+        return getattr(self._uow.posts, name)
+
+    async def archive(self, post_id):
+        if post_id == self._parent.id and not self._recorded:
+            self._recorded.append(
+                await self._uow.posts.add(
+                    make_reply(self._parent, GRACE, id=None)
+                )
+            )
+        return await self._uow.posts.archive(post_id)
 
 
 class TestDeletedPostsAreNotOperable:

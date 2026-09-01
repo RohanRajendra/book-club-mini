@@ -200,7 +200,8 @@ classDiagram
         +BookRepository books
         +PostRepository posts
         +list~Callable~ on_commit
-        +commit()*
+        +commit()
+        +_commit()*
         +rollback()*
         +__aenter__()
         +__aexit__(exc_type, exc, tb)

@@ -48,6 +48,94 @@ async def test_add_book_requires_a_title(add):
     assert isinstance(result.unwrap_err(), errors.TitleRequired)
 
 
+class TestOnlyOneBookStaysCurrent:
+    """`_pause_the_current_book` reads every book and then writes, so two
+    concurrent "set currently reading" calls both read before either writes and
+    both survive. The app offers no way to express two current books — the
+    spine and the default book both assume one — so the state was unreachable
+    by intent and unrepairable once reached.
+    """
+
+    async def setup_two_current(self, uow):
+        """Reached through the store, because the use case refuses to create
+        it. That is the point: the state arrives from a race or a hand-edit,
+        never from the app."""
+        async with uow:
+            for title in ("Piranesi", "Jonathan Strange"):
+                await uow.books.add(Book(title=title, status=READING))
+            await uow.commit()
+
+    async def test_the_extra_current_book_is_demoted(self, uow, listing):
+        await self.setup_two_current(uow)
+        books = (await listing.execute()).unwrap()
+        current = [book for book in books if book.status is READING]
+        assert len(current) == 1
+
+    async def test_the_demotion_is_paused_not_finished(self, uow, listing):
+        """Same reason `_pause_the_current_book` chooses Paused: the app cannot
+        tell whether you finished a book or set it aside, and guessing writes a
+        false claim into the owner's Notion."""
+        await self.setup_two_current(uow)
+        books = (await listing.execute()).unwrap()
+        assert {book.status for book in books} == {READING, BookStatus.PAUSED}
+
+    async def test_the_repair_is_written_not_just_displayed(self, uow, listing):
+        """Notion is the source of truth and the owner reads it directly, so a
+        repair that only changed what the app displayed would leave the app and
+        the workspace disagreeing."""
+        await self.setup_two_current(uow)
+        await listing.execute()
+
+        async with uow:
+            stored = await uow.books.list_all()
+        assert sum(book.status is READING for book in stored) == 1
+
+    async def test_a_healthy_list_writes_nothing(self, uow, listing, add):
+        """The common case must not turn a read into a write."""
+        await add.execute(BookCommand(title="Piranesi", status=READING))
+        await add.execute(BookCommand(title="Jonathan Strange"))
+        async with uow:
+            before = [book.status for book in await uow.books.list_all()]
+
+        await listing.execute()
+
+        async with uow:
+            assert [book.status for book in await uow.books.list_all()] == before
+
+    async def test_a_healthy_list_does_not_commit(self, uow, listing, add):
+        """A commit fires the `on_commit` hooks, and feed-cache invalidation is
+        one of them — so a read that commits anyway would clear the cache on
+        every book list, which is most page loads."""
+        await add.execute(BookCommand(title="Piranesi", status=READING))
+        fired: list[int] = []
+        uow.on_commit.append(lambda: fired.append(1))
+
+        await listing.execute()
+
+        assert fired == []
+
+    async def test_a_repair_does_commit(self, uow, listing):
+        """The other half: a repair is a write, and the feed cache holds
+        spoiler flags computed against the book that was current."""
+        await self.setup_two_current(uow)
+        fired: list[int] = []
+        uow.on_commit.append(lambda: fired.append(1))
+
+        await listing.execute()
+
+        assert fired == [1]
+
+    async def test_one_current_book_is_left_alone(self, uow, listing, add):
+        await add.execute(BookCommand(title="Piranesi", status=READING))
+        books = (await listing.execute()).unwrap()
+        assert [book.status for book in books] == [READING]
+
+    async def test_no_current_book_is_left_alone(self, uow, listing, add):
+        await add.execute(BookCommand(title="Piranesi", status=BookStatus.UPCOMING))
+        books = (await listing.execute()).unwrap()
+        assert [book.status for book in books] == [BookStatus.UPCOMING]
+
+
 def test_every_status_has_a_place_in_the_ordering():
     """The book list sorts by status, and a status missing from the ordering
     used to raise — a 500 on `GET /api/books` the day a fifth is added. It now

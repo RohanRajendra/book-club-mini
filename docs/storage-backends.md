@@ -25,7 +25,8 @@ classDiagram
         +BookRepository books
         +PostRepository posts
         +list~Callable~ on_commit
-        +commit()*
+        +commit()
+        +_commit()*
         +rollback()*
         +__aenter__()
         +__aexit__(exc_type, exc, tb)
@@ -100,7 +101,7 @@ Two are easy to get wrong:
 A list of zero-argument callables invoked **after** a successful commit and
 **never** after a rollback. The container registers cache invalidation here.
 Two contract tests cover it. The base class provides `_fire_on_commit()`; call
-it at the end of your `commit`.
+it at the end of your `_commit`.
 
 ---
 
@@ -253,12 +254,13 @@ class PostgresUnitOfWork(UnitOfWork):
 
     async def __aexit__(self, exc_type, exc, tb):
         try:
-            if exc_type is not None:
-                await self.rollback()
+            await super().__aexit__(exc_type, exc, tb)
         finally:
             await self._pool.release(self._connection)
 
-    async def commit(self):
+    # `commit` is the base class's, and is what records that the scope
+    # succeeded. Implementations override `_commit`.
+    async def _commit(self):
         await self._transaction.commit()
         self._fire_on_commit()
 
@@ -270,10 +272,18 @@ Compare against `adapters/notion/unit_of_work.py`, which needs a compensation
 stack, property capture before updates, reverse replay and error logging — about
 90 lines that exist solely because Notion has no transactions.
 
-Two requirements the contract enforces:
+Three requirements the contract enforces:
 
-- `__aexit__` rolls back on an exception and **never** auto-commits.
+- `__aexit__` rolls back **unless the scope committed**, and never auto-commits.
+  A use case that writes and then returns `Err` never calls `commit`, and
+  leaving those writes in place is the half-applied state the unit of work
+  exists to prevent. Override `_commit`, not `commit`, so the base class can
+  record that the scope succeeded — that is what makes this a property of the
+  port rather than something each adapter has to remember.
 - `commit` fires `on_commit` only on success.
+- Commit is a durability boundary. Once it has been crossed there is nothing
+  left to undo, so an exception after it does **not** roll back — and writes
+  made after it are covered by nothing.
 
 ### Step 6 — Wire the container
 
@@ -413,7 +423,8 @@ Also revisit, since each exists to work around a Notion constraint:
 - [ ] `tests/unit` and `tests/api` pass unchanged
 - [ ] Column or field names confined to the adapter's mapper module
 - [ ] `on_commit` fires after commit, never after rollback
-- [ ] `__aexit__` rolls back on exception and does not auto-commit
+- [ ] `__aexit__` rolls back unless committed, and does not auto-commit
+- [ ] `_commit` is overridden, not `commit`
 - [ ] `archive` soft-deletes; `get` still returns archived records, flagged `is_deleted`
 - [ ] `list_for_book` does not load full bodies
 - [ ] `list_replies` is filtered by the store, and is not capped by `list_for_book`

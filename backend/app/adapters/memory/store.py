@@ -179,9 +179,10 @@ class InMemoryUnitOfWork(UnitOfWork):
 
     async def __aenter__(self) -> "InMemoryUnitOfWork":
         self._snapshot = self._state.snapshot()
+        await super().__aenter__()
         return self
 
-    async def commit(self) -> None:
+    async def _commit(self) -> None:
         self._snapshot = None
         self._fire_on_commit()
 

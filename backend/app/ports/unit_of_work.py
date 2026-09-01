@@ -29,20 +29,40 @@ class UnitOfWork(ABC):
     #:.
     on_commit: list[Callable[[], None]]
 
+    #: Whether `commit()` was reached inside the current scope.
+    _committed: bool = False
+
     async def __aenter__(self) -> "UnitOfWork":
+        self._committed = False
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
-        """Roll back if an exception passed through, otherwise do nothing.
+        """Roll back unless the scope committed.
 
-        Deliberately no auto-commit: an implicit commit on a use case that
-        returned `Err` is a bug waiting to happen. Use cases commit explicitly.
+        Still no auto-commit: an implicit commit on a use case that returned
+        `Err` is a bug waiting to happen, so use cases commit explicitly.
+
+        But leaving uncommitted writes in place is the same bug from the other
+        side. Only an exception used to trigger a rollback, so a use case that
+        wrote and then returned `Err` — one added guard clause away — left
+        those writes durable and unannounced. A scope that did not commit did
+        not succeed, however it ended.
         """
-        if exc_type is not None:
+        if not self._committed:
             await self.rollback()
 
+    async def commit(self) -> None:
+        """Final, so that no implementation can forget to record the fact.
+
+        Implementations override `_commit`. That is what makes rollback-unless-
+        committed a property of the port rather than a convention each adapter
+        has to remember.
+        """
+        await self._commit()
+        self._committed = True
+
     @abstractmethod
-    async def commit(self) -> None: ...
+    async def _commit(self) -> None: ...
 
     @abstractmethod
     async def rollback(self) -> None: ...
