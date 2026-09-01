@@ -276,10 +276,42 @@ backend and is listed in Tier 3 as #26 rather than deleted.
 
 ## Tier 3 — latent, narrow, or needs an out-of-band trigger
 
+### 12. Every length limit measured the wrong quantity — **fixed**
+
+Notion's 2000-character property cap counts **UTF-16 code units**, not code
+points. Confirmed against the live API, which rejects 1001 astral emoji with
+`content.length should be ≤ 2000, instead was 2002` — and creates nothing, so
+the check cost no cleanup. Python's `len` counts code points, so an emoji-heavy
+1,900-character preview is 3,800 units and the write fails as a `502` the member
+reads as "Can't reach Notion right now".
+
+Four places measured it: the `Post` preview guard, the body ceiling, the
+preview cut, and the rich-text chunker. All now use `domain/text.py`, which also
+provides a clip that cuts **between code points** — slicing by unit index
+directly would leave half a surrogate pair, which no store accepts and no reader
+renders.
+
+Fixing the chunker exposed a second defect underneath. An object closes one unit
+short whenever the next character is astral and one unit of budget remains, and
+a body can be built where that happens at *every* boundary. At a ceiling of
+100 × 2000 such a body is inside the limit and still needs 101 objects, which
+Notion rejects. The ceiling is now what 100 objects can be *relied* on to hold —
+199,900 — and the body limit moved with it. A test pins the two constants equal,
+because the domain cannot import the adapter and nothing else keeps them so.
+
+Verified end to end against the live workspace, since chunking is exactly the
+kind of thing a stub agrees with and a real store does not: a body mixing
+astral emoji, a flag pair and a family sequence, split into four objects, round
+tripped byte-identical. The probe page was archived and the workspace confirmed
+back at sixteen posts.
+
+Eleven mutations, all killed. The survivor on the first pass was the word-
+boundary floor, which no emoji test reached.
+
+
 | # | Issue | Cost |
 | --- | --- | --- |
 | 11 | An oversize title or author passes every layer, Notion rejects it, and the member is told "Can't reach Notion right now" — a 502 for a typing mistake. No `max_length` on `BookRequest`. | S |
-| 12 | Length limits count code points; Notion counts UTF-16. An emoji-heavy 1,900-character preview is 3,800 units and breaches Notion's cap. | M |
 | 13 | `author` is never stripped, only `title` is. A whitespace author is stored, displays blank-but-present, and cannot be removed (see #1). | S |
 | 14 | Posts whose book relation is empty are given the fabricated id `BookId("orphan")` — invisible forever, a latent collision, and a hole in the guarantee that identifiers never silently substitute. | S |
 | 15 | A member name read from Notion is never checked against the roster and compares by exact string. Roster `Ada` against Notion `ada` is two people, and your own posts get blurred back at you. | S |

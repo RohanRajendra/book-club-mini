@@ -130,3 +130,13 @@ class TestPost:
 
     def test_post_allows_a_preview_at_exactly_the_cap(self):
         assert len(a_post(body_preview="x" * 1900).body_preview) == 1900
+
+    def test_a_preview_is_measured_in_utf16_units_not_code_points(self):
+        """Notion counts UTF-16. 951 emoji is 1902 units — over the cap at half
+        the character count, and the write fails as a 502."""
+        with pytest.raises(ValueError, match="1900"):
+            a_post(body_preview="\U0001F600" * 951)
+
+    def test_a_preview_of_emoji_at_exactly_the_cap_is_accepted(self):
+        preview = "\U0001F600" * 950
+        assert a_post(body_preview=preview).body_preview == preview

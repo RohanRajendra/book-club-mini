@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.domain.entities import Post
+from app.domain.entities import PREVIEW_LIMIT, Post
 from app.domain.services import (
     MAX_BODY,
     MIN_PREVIEW,
@@ -11,11 +11,15 @@ from app.domain.services import (
     PositionResolver,
     ScaleCalculator,
 )
+from app.domain.text import utf16_length
 from app.domain.values import BookId, MemberName, Position, PostId, PostType
 
 ADA = MemberName("Ada")
 GRACE = MemberName("Grace")
 T0 = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
+
+#: One code point, two UTF-16 code units.
+EMOJI = "\U0001F600"
 
 
 def progress(member, chapter, page=None, minutes=0) -> Post:
@@ -214,9 +218,10 @@ class TestBodySplitter:
         assert full == body
         assert full.startswith(preview)
 
-    def test_body_over_200000_chars_is_rejected(self):
-        """A Notion rich text array holds at most 100 objects of 2000 chars."""
-        with pytest.raises(ValueError, match="200000|200,000"):
+    def test_body_over_the_ceiling_is_rejected(self):
+        """A Notion rich text array holds at most 100 objects of 2000 UTF-16
+        units, less one unit per object that an astral boundary can waste."""
+        with pytest.raises(ValueError, match=r"199900|199,900"):
             self.split("x" * (MAX_BODY + 1))
 
     def test_body_at_exactly_the_ceiling_is_accepted(self):
@@ -226,6 +231,57 @@ class TestBodySplitter:
     def test_empty_body_is_allowed(self):
         """A bare position is a valid Progress post."""
         assert self.split("") == ("", False, None)
+
+
+class TestBodySplitterMeasuresUtf16:
+    """Every limit here is a Notion property limit, and Notion counts UTF-16.
+
+    An emoji-heavy body measured in code points produces a preview twice the
+    size Notion will accept, and the write fails with a 502 the member reads as
+    "Can't reach Notion right now".
+    """
+
+    split = staticmethod(BodySplitter().split)
+
+    def test_an_emoji_preview_stays_within_the_limit(self):
+        preview, has_full, _ = self.split(EMOJI * 2000)
+        assert utf16_length(preview) <= PREVIEW_LIMIT
+        assert has_full
+
+    def test_a_body_of_emoji_that_fits_is_not_split(self):
+        """950 emoji is 1900 units — exactly the limit, and one post, not two."""
+        body = EMOJI * (PREVIEW_LIMIT // 2)
+        assert self.split(body) == (body, False, None)
+
+    def test_one_emoji_past_the_limit_is_split(self):
+        body = EMOJI * (PREVIEW_LIMIT // 2 + 1)
+        preview, has_full, full = self.split(body)
+        assert has_full and full == body
+        assert utf16_length(preview) <= PREVIEW_LIMIT
+
+    def test_the_preview_never_ends_in_half_a_surrogate_pair(self):
+        preview, _, _ = self.split(EMOJI * 2000)
+        preview.encode("utf-8")  # raises on a lone surrogate
+        assert preview == EMOJI * (utf16_length(preview) // 2)
+
+    def test_the_word_boundary_floor_counts_units_too(self):
+        """800 emoji is 1600 units — comfortably past the floor — but only 800
+        characters, well below it. Measured in code points the cut looks too
+        expensive to honour and the preview is hacked off mid-text instead."""
+        preview, _, _ = self.split(EMOJI * 800 + " " + EMOJI * 2000)
+        assert preview == EMOJI * 800
+        assert utf16_length(preview) >= MIN_PREVIEW
+        assert len(preview) < MIN_PREVIEW
+
+    def test_the_body_ceiling_counts_units_not_code_points(self):
+        """100,001 emoji is 200,002 units: over the ceiling despite being far
+        fewer than 200,000 characters."""
+        with pytest.raises(ValueError):
+            self.split(EMOJI * (MAX_BODY // 2 + 1))
+
+    def test_a_body_of_emoji_at_exactly_the_ceiling_is_accepted(self):
+        preview, has_full, full = self.split(EMOJI * (MAX_BODY // 2))
+        assert has_full and utf16_length(full) == MAX_BODY
 
 
 class TestScaleCalculator:

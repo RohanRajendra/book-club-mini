@@ -15,10 +15,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from app.domain.text import utf16_length
 from app.domain.values import BookId, BookStatus, MemberName, Position, PostId, PostType
 
-#: Notion's rich text property caps at 2000 characters. The margin keeps
-#: truncation from colliding with the limit (00-overview.md §Notion schema).
+#: Notion's rich text property caps at 2000 **UTF-16 code units** — not code
+#: points; see domain/text.py. The margin keeps truncation from colliding with
+#: the limit (00-overview.md §Notion schema).
 PREVIEW_LIMIT = 1900
 
 #: Below this, a difference between created_at and last_edited_time is the
@@ -72,10 +74,11 @@ class Post:
     is_deleted: bool = False
 
     def __post_init__(self) -> None:
-        if len(self.body_preview) > PREVIEW_LIMIT:
+        preview_length = utf16_length(self.body_preview)
+        if preview_length > PREVIEW_LIMIT:
             raise ValueError(
                 f"body_preview must be at most {PREVIEW_LIMIT} characters, "
-                f"got {len(self.body_preview)}"
+                f"got {preview_length}"
             )
         if self.parent_post_id is not None and self.type is not PostType.REPLY:
             raise ValueError(

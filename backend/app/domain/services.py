@@ -6,10 +6,18 @@ import math
 import re
 
 from app.domain.entities import PREVIEW_LIMIT, Post
+from app.domain.text import clip_to_utf16, utf16_length
 from app.domain.values import MemberName, Position, PostType
 
-#: A Notion rich text array holds at most 100 objects of 2000 characters.
-MAX_BODY = 200_000
+#: What a Notion rich text array can be relied on to hold: 100 objects of 2000
+#: UTF-16 code units, less one unit per object. An object closes a unit short
+#: whenever the next character is astral and one unit of budget remains, and a
+#: body can be built where that happens at every boundary. Measured in units,
+#: like every other limit here — see domain/text.py.
+#:
+#: A test pins this equal to the adapter's own ceiling; the domain cannot
+#: import it.
+MAX_BODY = 199_900
 
 #: Floor for an inferred spine scale. A known total gives the true scale, even
 #: when it is smaller than this.
@@ -79,18 +87,19 @@ class BodySplitter:
         The cut prefers a word boundary, but not at any price: see
         `MIN_PREVIEW`.
         """
-        if len(body) > MAX_BODY:
+        length = utf16_length(body)
+        if length > MAX_BODY:
             raise ValueError(
-                f"body must be at most {MAX_BODY} characters, got {len(body)}"
+                f"body must be at most {MAX_BODY} characters, got {length}"
             )
-        if len(body) <= PREVIEW_LIMIT:
+        if length <= PREVIEW_LIMIT:
             return body, False, None
 
-        head = body[:PREVIEW_LIMIT]
+        head = clip_to_utf16(body, PREVIEW_LIMIT)
         boundary = _LAST_BOUNDARY.search(head)
         if boundary is not None:
             preview = head[: boundary.start()].rstrip()
-            if len(preview) >= MIN_PREVIEW:
+            if utf16_length(preview) >= MIN_PREVIEW:
                 return preview, True, body
         # No boundary, or one so early that respecting it would throw most of
         # the preview away. A clean cut is worth a few characters, not a

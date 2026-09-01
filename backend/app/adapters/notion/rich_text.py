@@ -4,25 +4,44 @@ from __future__ import annotations
 
 from typing import Any
 
-#: A single rich text object caps at 2000 characters.
+from app.domain.text import clip_to_utf16, utf16_length
+
+#: A single rich text object caps at 2000 UTF-16 code units. Not code points:
+#: Notion answers "content.length should be <= 2000, instead was 2002" to 1001
+#: astral emoji. See domain/text.py.
 CHUNK_SIZE = 2000
 
-#: A rich text array holds at most 100 objects, so ~200,000 characters.
+#: A rich text array holds at most 100 objects.
 MAX_CHUNKS = 100
-MAX_CONTENT = CHUNK_SIZE * MAX_CHUNKS
+
+#: What 100 objects can be *relied* on to hold. Not 100 x 2000: an object
+#: closes one unit short whenever the next character is astral and only one
+#: unit of its budget is left, and a body can be built where that happens at
+#: every boundary. At 100 x 2000 such a body is inside the ceiling and still
+#: needs 101 objects, which Notion rejects.
+MAX_CONTENT = MAX_CHUNKS * (CHUNK_SIZE - 1)
 
 
 def to_rich_text(content: str) -> list[dict[str, Any]]:
-    if len(content) > MAX_CONTENT:
+    length = utf16_length(content)
+    if length > MAX_CONTENT:
         raise ValueError(
-            f"content must be at most {MAX_CONTENT} characters, got {len(content)}"
+            f"content must be at most {MAX_CONTENT} characters, got {length}"
         )
     if not content:
         return []
-    return [
-        {"type": "text", "text": {"content": content[index : index + CHUNK_SIZE]}}
-        for index in range(0, len(content), CHUNK_SIZE)
-    ]
+
+    # Sliced by unit budget rather than by character count, and cut only
+    # between code points. A fixed character stride puts 4000 units in an
+    # object when the text is astral, and slicing by unit index directly would
+    # leave half a surrogate pair.
+    chunks: list[dict[str, Any]] = []
+    rest = content
+    while rest:
+        head = clip_to_utf16(rest, CHUNK_SIZE)
+        chunks.append({"type": "text", "text": {"content": head}})
+        rest = rest[len(head) :]
+    return chunks
 
 
 def from_rich_text(array: list[dict[str, Any]] | None) -> str:
