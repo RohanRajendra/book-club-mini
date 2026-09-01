@@ -200,7 +200,8 @@ classDiagram
         +BookRepository books
         +PostRepository posts
         +list~Callable~ on_commit
-        +commit()*
+        +commit()
+        +_commit()*
         +rollback()*
         +__aenter__()
         +__aexit__(exc_type, exc, tb)
@@ -215,6 +216,7 @@ classDiagram
     class PostRepository {
         <<abstract>>
         +list_for_book(book_id) list~Post~
+        +list_replies(parent_post_id) list~Post~
         +get(post_id) Post?
         +add(post, full_body) Post
         +update(post, full_body) Post
@@ -495,8 +497,45 @@ One rule shapes this layer:
 > **All state, derivation and formatting live in hooks and pure functions.
 > Components are thin and presentational.**
 
-Components are not tested, so any logic inside one is untested by construction.
-"I want to test this component" is the signal to extract a hook.
+Components hold no logic, so any logic put inside one is untested by
+construction. "I want to test this component" is the signal to extract a hook.
+
+### Layout
+
+Three columns. The feed keeps a reading measure of about 680px; the space that
+measure leaves over holds the standing context, in reach without scrolling and
+without pushing the first post below the fold.
+
+```mermaid
+flowchart LR
+    subgraph TB["TopBar — sticky"]
+        direction LR
+        M["Wordmark"] ~~~ V["View as"] ~~~ W["Member"] ~~~ R["Refresh"] ~~~ T["ThemeToggle"]
+    end
+    subgraph Cols[" "]
+        direction LR
+        L["Left rail — sticky<br/>Panel: Book<br/>Panel: Filter"]
+        C["Feed column<br/>Composer<br/>Feed"]
+        RR["Right rail — sticky<br/>Panel: Progress<br/>Spine · QuickProgress"]
+    end
+    TB --> Cols
+```
+
+Below 1200px it becomes two columns — one rail beside the feed holding all
+three panels. Splitting the rails across the top instead leaves a ragged,
+half-empty band above the feed, because the two are never the same height.
+Below 760px everything stacks and the spine lies down. Orientation is the
+stylesheet's business: a tick's distance along the track is written as a
+`--pos` custom property, and the media query decides whether that is a distance
+down or across.
+
+A post's preview runs to the storage layer's field limit — around thirty lines,
+which is one post filling the screen. The feed clamps a long body to eight and
+offers to open it. Whether opening costs a request depends on why it is long:
+`lib/truncation.js` separates a post whose remainder is in a body block from
+one that is merely long and already on the page.
+
+### Components
 
 ```mermaid
 flowchart TD
@@ -505,26 +544,41 @@ flowchart TD
     App --> useFeed
     App --> useComposer
     App --> useReveal
+    App --> useTheme
+    App --> usePanels
+    App --> useToggleSet
 
     useMe --> api["lib/api.js"]
     useBooks --> api
     useFeed --> api
     useReveal --> api
+    useTheme --> store["lib/storage.js"]
+    usePanels --> store
 
-    App --> BookBar
-    App --> Spine
+    App --> TopBar
+    TopBar --> ThemeToggle
+    App --> Panel
+    Panel --> BookPanel
+    Panel --> FilterChips
+    Panel --> Spine
+    Spine --> QuickProgress
     App --> Composer
-    App --> FilterChips
     App --> Feed
     Feed --> PostCard
     PostCard --> BlurOverlay
+    PostCard --> PostEditor
     PostCard --> ReplyList
+    PostEditor --> usePostEditor
     ReplyList --> PostCard
 
-    BookBar -.-> colour["lib/readerColour.js"]
+    BookPanel -.-> colour["lib/readerColour.js"]
     Spine -.-> pos["lib/formatPosition.js"]
     PostCard -.-> time["lib/formatTime.js"]
 ```
+
+`Panel` is the collapsible section used by all three rail panels. `PostCard`
+renders either a body or an editor, never both — which is what puts an edit in
+the card being edited rather than at the end of the page.
 
 | Hook | Holds |
 | --- | --- |
@@ -532,9 +586,31 @@ flowchart TD
 | `useBooks` | List, selection, add, update |
 | `useFeed` | Load, refresh, filter, error, optimistic insert |
 | `useComposer` | Type, fields, prefill, validation, submit |
+| `usePostEditor` | One post's edit: fields, full-body fetch, save |
 | `useReveal` | Per-post reveal and expand state |
+| `useTheme` | Light or dark, and whether the system still decides |
+| `usePanels` | Which rail panels are open; persisted |
+| `useToggleSet` | Collapsed reply threads |
 
-Two behaviours worth reading closely in `useFeed`:
+### Theme
+
+`useTheme` follows the operating system until the member touches the toggle;
+the first toggle is recorded and the system is no longer consulted. It writes
+`data-theme` onto `<html>`, and `tokens.css` redefines the same custom
+properties under `[data-theme='dark']` — no component knows which theme is
+active.
+
+`index.html` runs the same resolution rule inline before the bundle loads.
+Without it the page paints light and then flips, one frame late, on every
+reload. The duplication is deliberate and the two must be changed together.
+
+Dark is not the light palette inverted. The grounds keep their green cast, and
+the two reader colours are lifted rather than reused: they are the app's
+primary wayfinding, and deep petrol on a dark ground is unreadable.
+
+### Behaviour worth reading closely
+
+Two in `useFeed`:
 
 - **Refresh never blanks the feed.** On error the existing posts stay; only the
   error field changes.
@@ -565,7 +641,9 @@ is to delete the frontend copy and render only what the API sends.
 | Add a domain error | `domain/errors.py` **and** `interface/errors.py`; the architecture test fails otherwise |
 | Change Notion request shape | `adapters/notion/repositories.py` |
 | Change the cache lifetime | `application/caching.py` |
-| Change a colour or font | `frontend/src/styles/tokens.css`, nowhere else |
+| Change a colour or font | `frontend/src/styles/tokens.css`, nowhere else — both themes |
+| Change the page layout | `frontend/src/styles/app.css` → `.columns` and its media queries |
+| Add a rail panel | A `<Panel>` in `App.jsx`; `usePanels` needs no change |
 | Add UI state | A hook, never a component |
 | Replace the database | A new adapter package — see [storage-backends.md](storage-backends.md) |
 
@@ -591,6 +669,13 @@ Three tests carry a `fake_only` marker: true rollback semantics, which a store
 without transactions cannot provide. The marker is keyed on a declared
 `supports_transactions` capability rather than a class name, so an
 implementation that has transactions runs them automatically.
+
+On the frontend, `src/hooks/` and `src/lib/` carry a ≥90% floor and components
+are excluded. One component test exists — `src/test/app.test.jsx` — which mounts
+the whole app against MSW and asserts the pieces are wired together and
+reachable. It was added after a redesign in which every hook test passed while
+the edit form rendered at the foot of the page instead of in the post being
+edited. It queries by role and label, never by class.
 
 Coverage floors are 100% line **and branch** on `domain/` and `application/`,
 and ≥90% on `adapters/` and `interface/`. The stricter target applies only where

@@ -1,14 +1,46 @@
 /* The only place a colour or font literal may appear. */
 
-:root {
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+
   --field: #e7e9e4; /* page ground, cool sage-grey */
   --surface: #f2f3ef; /* raised cards */
+  --sunk: #dcdfd7; /* inset wells: inputs, chips at rest */
   --ink: #191c18; /* primary text */
   --muted: #6a7168; /* metadata */
-  --rule: #c2c7bc; /* hairlines, spine track, blur wash */
+  --rule: #c2c7bc; /* hairlines, spine track */
+  --wash: #d2d7cb; /* the blur wash, and the spine past your own tick */
+  --on-ink: #f2f3ef; /* text on a filled --ink surface */
   --reader-a: #2c5f72; /* deep petrol */
   --reader-b: #7d2e46; /* deep plum */
+  --shadow: 0 1px 2px rgb(25 28 24 / 6%), 0 8px 24px rgb(25 28 24 / 8%);
+}
 
+/*
+ * Dark is not the light palette inverted. The grounds keep the same green cast
+ * so the app is recognisably itself, and the reader colours are lifted rather
+ * than reused: deep petrol on a dark ground is unreadable, and the two hues
+ * have to stay as far apart as they are in the light theme because they are
+ * the app's primary wayfinding.
+ */
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --field: #141713;
+  --surface: #1c201a;
+  --sunk: #101310;
+  --ink: #e6e9e1;
+  --muted: #949c8f;
+  --rule: #3c4438;
+  --wash: #2c3329;
+  --on-ink: #141713;
+  --reader-a: #7cb9cf;
+  --reader-b: #e0929f;
+  --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 8px 24px rgb(0 0 0 / 35%);
+}
+
+:root {
   --display: 'Fraunces', Georgia, serif;
   --body: 'Public Sans', system-ui, sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, monospace;
@@ -16,10 +48,24 @@
   --step: 4px;
   --radius: 3px;
   --motion: 150ms;
+  --rail: 232px;
+  --rail-wide: 252px;
+  --feed: 680px;
+  --topbar: 52px;
 }
 
 * {
   box-sizing: border-box;
+}
+
+/*
+ * Collapsing is done with the `hidden` attribute, which also takes the contents
+ * out of the tab order. The browser's own `[hidden] { display: none }` lives in
+ * the user-agent sheet, so any author rule that sets `display` — `.replies` is
+ * a flex column — silently beats it and the panel stays on screen.
+ */
+[hidden] {
+  display: none !important;
 }
 
 html,
@@ -31,6 +77,13 @@ body {
   font-weight: 400;
   line-height: 1.65;
   -webkit-font-smoothing: antialiased;
+}
+
+/* The theme flips on a class on <html>; without this the swap is a hard cut. */
+html {
+  transition:
+    background-color var(--motion) ease-out,
+    color var(--motion) ease-out;
 }
 
 /* Visible keyboard focus on every control. */
@@ -50,7 +103,7 @@ button {
 }
 
 button:hover:not(:disabled) {
-  background: var(--field);
+  background: var(--sunk);
 }
 
 button:disabled {
@@ -63,10 +116,16 @@ textarea,
 select {
   font: inherit;
   color: var(--ink);
-  background: var(--surface);
+  background: var(--sunk);
   border: 1px solid var(--rule);
   border-radius: var(--radius);
   padding: calc(var(--step) * 1.5) calc(var(--step) * 2);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  background: var(--surface);
 }
 
 textarea {
@@ -109,7 +168,8 @@ textarea {
   border: 0;
 }
 
-/* Motion is limited to the blur reveal and the composer expand. */
+/* Motion is limited to the blur reveal, the composer expand, disclosure
+   chevrons and the theme swap. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

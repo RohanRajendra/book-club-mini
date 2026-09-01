@@ -1,12 +1,16 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 
 import { server } from '../test/setup'
 import { ApiError, api } from './api'
 import { formatPosition } from './formatPosition'
 import { formatExactTime, formatRelativeTime } from './formatTime'
+import { lastProgressAt } from './lastProgressAt'
 import { assignReaderColour, initialOf, readerColourFor } from './readerColour'
 import { MIN_SCALE, spineScale } from './spineScale'
+import { readSetting, writeSetting } from './storage'
+import { positionProblem } from './positionRules'
+import { CLAMP_CHARS, isClampable, needsFetch } from './truncation'
 
 describe('spineScale', () => {
   it('uses total chapters when known', () => {
@@ -40,16 +44,24 @@ describe('spineScale', () => {
   // These cases mirror tests/unit/domain/test_services.py exactly. If the two
   // ever disagree, delete this copy and render only what the API sends.
   it.each([
-    [30, 12, 30, false],
-    [null, 50, 60, true],
-    [null, 3, 10, true],
-    [null, null, 10, true],
-    [30, 400, 400, false],
-    [3, null, 3, false],
-    [null, 11, 14, true],
-  ])('matches the backend for (%s, %s)', (total, observed, max, isEstimated) => {
-    expect(spineScale(total, observed)).toEqual({ max, isEstimated })
-  })
+    [30, 12, false, 30, false],
+    [null, 50, false, 60, true],
+    [null, 3, false, 10, true],
+    [null, null, false, 10, true],
+    [30, 400, false, 400, false],
+    [3, null, false, 3, false],
+    [null, 11, false, 14, true],
+    // A finished book with no stated length ends at its furthest chapter.
+    [null, 45, true, 45, false],
+    [50, 45, true, 50, false],
+    [null, 3, true, 3, false],
+    [null, null, true, 10, true],
+  ])(
+    'matches the backend for (%s, %s, finished=%s)',
+    (total, observed, isFinished, max, isEstimated) => {
+      expect(spineScale(total, observed, isFinished)).toEqual({ max, isEstimated })
+    },
+  )
 })
 
 describe('formatPosition', () => {
@@ -186,5 +198,179 @@ describe('api client', () => {
 
   it('is an ApiError subclass so callers can branch on it', () => {
     expect(new ApiError('x', 400)).toBeInstanceOf(Error)
+  })
+})
+
+describe('lastProgressAt', () => {
+  const progress = (member, at) => ({ member, type: 'Progress', created_at: at })
+
+  it('reports the newest progress post per member', () => {
+    expect(
+      lastProgressAt([
+        progress('Ada', '2026-03-01T09:00:00Z'),
+        progress('Ada', '2026-03-04T09:00:00Z'),
+        progress('Grace', '2026-03-02T09:00:00Z'),
+      ]),
+    ).toEqual({ Ada: '2026-03-04T09:00:00Z', Grace: '2026-03-02T09:00:00Z' })
+  })
+
+  it('keeps the newest whichever order it arrives in', () => {
+    expect(
+      lastProgressAt([
+        progress('Ada', '2026-03-04T09:00:00Z'),
+        progress('Ada', '2026-03-01T09:00:00Z'),
+      ]),
+    ).toEqual({ Ada: '2026-03-04T09:00:00Z' })
+  })
+
+  it('ignores thoughts, which are not a claim to have arrived anywhere', () => {
+    expect(
+      lastProgressAt([
+        { member: 'Ada', type: 'Thought', created_at: '2026-03-09T09:00:00Z' },
+        progress('Ada', '2026-03-01T09:00:00Z'),
+      ]),
+    ).toEqual({ Ada: '2026-03-01T09:00:00Z' })
+  })
+
+  it('skips a timestamp it cannot read rather than reporting NaN', () => {
+    expect(lastProgressAt([progress('Ada', 'not a date')])).toEqual({})
+  })
+
+  it('handles no posts at all', () => {
+    expect(lastProgressAt()).toEqual({})
+  })
+})
+
+describe('storage', () => {
+  beforeEach(() => window.localStorage.clear())
+
+  it('round-trips a value', () => {
+    writeSetting('theme', 'dark')
+    expect(readSetting('theme')).toBe('dark')
+  })
+
+  it('namespaces its keys so it cannot collide with anything else', () => {
+    writeSetting('theme', 'dark')
+    expect(window.localStorage.getItem('bookclub.theme')).toBe('"dark"')
+  })
+
+  it('returns the fallback for a key that was never written', () => {
+    expect(readSetting('theme', 'light')).toBe('light')
+  })
+
+  it('returns the fallback rather than throwing on corrupt JSON', () => {
+    window.localStorage.setItem('bookclub.panels', '{oh no')
+    expect(readSetting('panels', {})).toEqual({})
+  })
+
+  it('reports a failed write instead of taking the page down with it', () => {
+    const setItem = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(() => {
+        throw new DOMException('QuotaExceededError')
+      })
+    expect(writeSetting('theme', 'dark')).toBe(false)
+    setItem.mockRestore()
+  })
+
+  it('survives a browser that throws on read', () => {
+    const getItem = vi
+      .spyOn(Storage.prototype, 'getItem')
+      .mockImplementation(() => {
+        throw new DOMException('SecurityError')
+      })
+    expect(readSetting('theme', 'light')).toBe('light')
+    getItem.mockRestore()
+  })
+})
+
+describe('truncation', () => {
+  const of = (o) => ({ body_preview: '', has_full_body: false, ...o })
+
+  it('clamps a post whose remainder lives elsewhere', () => {
+    expect(isClampable(of({ has_full_body: true, body_preview: 'short' }))).toBe(true)
+    expect(needsFetch(of({ has_full_body: true }))).toBe(true)
+  })
+
+  it('clamps a merely long post, and opens it without a request', () => {
+    const long = of({ body_preview: 'x'.repeat(CLAMP_CHARS + 1) })
+    expect(isClampable(long)).toBe(true)
+    expect(needsFetch(long)).toBe(false)
+  })
+
+  it('leaves a short post alone', () => {
+    expect(isClampable(of({ body_preview: 'x'.repeat(CLAMP_CHARS) }))).toBe(false)
+  })
+
+  it('handles a post with no body at all', () => {
+    expect(isClampable({})).toBe(false)
+  })
+})
+
+describe('positionProblem', () => {
+  const BOOK = { title: 'Piranesi', total_chapters: 45 }
+  const at = (chapter, page = '') => positionProblem({ chapter, page }, BOOK)
+
+  it('accepts a chapter inside the book', () => {
+    expect(at('44')).toBeNull()
+  })
+
+  it('accepts the last chapter', () => {
+    expect(at('45')).toBeNull()
+  })
+
+  it('rejects one past the end', () => {
+    expect(at('46')).toBe('Piranesi has 45 chapters, so there is no chapter 46.')
+  })
+
+  // The exact sentence the server sends, so a member sees one wording.
+  it('words the rejection the way the backend does', () => {
+    expect(at('99')).toBe('Piranesi has 45 chapters, so there is no chapter 99.')
+  })
+
+  it('accepts any chapter when the book states no length', () => {
+    expect(positionProblem({ chapter: '9000' }, { title: 'X', total_chapters: null }))
+      .toBeNull()
+  })
+
+  it('accepts any chapter when there is no book yet', () => {
+    expect(positionProblem({ chapter: '9000' }, null)).toBeNull()
+  })
+
+  it('accepts an empty position', () => {
+    expect(at('')).toBeNull()
+  })
+
+  // inputMode="numeric" is a keyboard hint, not a constraint: a paste puts
+  // anything in the field, and Number('abc') serialises to null.
+  it.each(['abc', '1.5', '1e9', '-5', '٤'])(
+    'rejects %j as a chapter',
+    (raw) => {
+      expect(at(raw)).toMatch(/whole number|1 or more/)
+    },
+  )
+
+  it('treats a whitespace-only chapter as no chapter, not as invalid', () => {
+    expect(at('   ')).toBeNull()
+  })
+
+  it('rejects zero', () => {
+    expect(at('0')).toBe('A chapter is 1 or more.')
+  })
+
+  it('tolerates surrounding whitespace', () => {
+    expect(at('  12  ')).toBeNull()
+  })
+
+  it('rejects a page without a chapter', () => {
+    expect(at('', '204')).toBe('A page needs a chapter to go with it.')
+  })
+
+  it('rejects a page that is not a whole number', () => {
+    expect(at('12', 'xii')).toBe('A page is a whole number.')
+  })
+
+  it('accepts a valid chapter and page', () => {
+    expect(at('12', '204')).toBeNull()
   })
 })

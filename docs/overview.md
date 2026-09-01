@@ -89,6 +89,13 @@ Chapter dominates the comparison. Page numbers only break ties within a single
 chapter, and only when both are present, because two members may hold different
 editions or one may be listening to an audiobook.
 
+**A chapter must fall inside the book.** Where a book states a chapter count,
+posting or editing past it is refused, and a book cannot be shortened below its
+existing posts. Books with no stated count accept any chapter. This is not
+cosmetic: an out-of-range progress update would place that member past every
+post in the book, so nothing would be ahead of them and blurring would switch
+off entirely.
+
 Blurring is presentational. Author, position and timestamp stay sharp — knowing
 that someone said *something* at chapter 9 is not a spoiler, and hiding the card
 entirely would hide that the group is active. Revealing affects one post and
@@ -158,6 +165,26 @@ documented as such throughout.
 
 A **View as** control re-renders the page as the other member. It changes only
 which position drives the blur evaluation, never attribution.
+
+### The interface
+
+One screen, three columns. The feed holds a reading measure in the middle; the
+book, the type filters and the progress spine occupy the space either side,
+sticky, each in a collapsible section whose state is remembered. Below 1200px
+the three sections gather into a single rail beside the feed; below 760px
+everything stacks and the spine turns horizontal.
+
+Long posts are clamped in the feed and open in place, so no single post can
+crowd out the others.
+
+Editing happens in the post being edited, replying under the post being replied
+to, and a long post expands and collapses in place. Nothing that acts on one
+post opens somewhere else on the page.
+
+Light and dark themes both ship. The app follows the operating system until the
+member uses the toggle, after which the choice is remembered. Colour is defined
+once, as custom properties, and redefined for dark under an attribute on the
+document element — no component knows which theme is in force.
 
 ### Operating constraints
 

@@ -77,12 +77,14 @@ class TestBookMapper:
         page["properties"].pop("Total Chapters", None)
         assert BookMapper().to_domain(page).total_chapters is None
 
-    def test_to_properties_omits_none_valued_fields(self):
+    def test_to_properties_writes_an_absent_author_as_empty(self):
+        """Not omitted: Notion merges an update, so an omitted property keeps
+        its old value and the field could never be cleared."""
         from app.domain.entities import Book
 
         properties = BookMapper().to_properties(Book(title="Piranesi"))
-        assert "Author" not in properties
-        assert "Total Chapters" not in properties
+        assert properties["Author"] == {"rich_text": []}
+        assert properties["Total Chapters"] == {"number": None}
 
 
 class TestPostMapper:

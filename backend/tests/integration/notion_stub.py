@@ -34,6 +34,7 @@ class NotionStub:
         self.requests: list[tuple[str, str, dict[str, Any] | None]] = []
         self._ids = count(1)
         self._now = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
+        self._clock_step = timedelta(seconds=1)
         #: Set to a status code to make the next matching write fail.
         self.fail_next: dict[str, int] = {}
 
@@ -42,8 +43,18 @@ class NotionStub:
     def _next_id(self, prefix: str) -> str:
         return f"{prefix}-{next(self._ids)}"
 
+    def hold_clock(self) -> None:
+        """Stop the clock, so everything created next shares a timestamp.
+
+        Real Notion truncates `created_time` to the minute — every page in a
+        live workspace reports `:00.000Z` — so pages created moments apart tie
+        as a matter of course. The stub ticks per write for the tests that need
+        distinct timestamps; this is how a test asks for the other case.
+        """
+        self._clock_step = timedelta(0)
+
     def _tick(self) -> str:
-        self._now += timedelta(seconds=1)
+        self._now += self._clock_step
         return self._now.isoformat().replace("+00:00", "Z")
 
     def _maybe_fail(self, key: str) -> httpx.Response | None:
@@ -111,10 +122,15 @@ class NotionStub:
             and _matches(page, payload.get("filter"))
         ]
 
+        # Creation order, for breaking a tie. Measured against a live
+        # workspace: under a descending created_time sort Notion returns a
+        # tied pair newest first — a reply, which cannot predate its parent,
+        # comes back before it.
+        created_order = {page_id: index for index, page_id in enumerate(self.pages)}
         for sort in reversed(payload.get("sorts") or []):
             if sort.get("timestamp") == "created_time":
                 rows.sort(
-                    key=lambda page: page["created_time"],
+                    key=lambda page: (page["created_time"], created_order[page["id"]]),
                     reverse=sort.get("direction") == "descending",
                 )
 
@@ -261,7 +277,16 @@ def _matches(page: dict[str, Any], filter_: dict[str, Any] | None) -> bool:
     if "relation" in filter_:
         wanted = filter_["relation"]["contains"]
         return any(item["id"] == wanted for item in prop.get("relation", []))
-    return True  # pragma: no cover - only the relation filter is used
+    if "rich_text" in filter_:
+        # Notion adds plain_text on read; a page created through this stub only
+        # carries what was written, which is text.content.
+        wanted = filter_["rich_text"]["equals"]
+        text = "".join(
+            item.get("plain_text") or item.get("text", {}).get("content", "")
+            for item in prop.get("rich_text", [])
+        )
+        return text == wanted
+    return True  # pragma: no cover - only two filter shapes are used
 
 
 def mount(respx_mock, stub: NotionStub) -> NotionStub:

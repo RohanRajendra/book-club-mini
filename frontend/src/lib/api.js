@@ -60,5 +60,6 @@ export const api = {
   createPost: (payload) => send('POST')('/posts', payload),
   editPost: (id, payload) => send('PATCH')(`/posts/${id}`, payload),
   deletePost: (id) => request(`/posts/${id}`, { method: 'DELETE' }),
-  postBody: (id) => request(`/posts/${id}/body`),
+  postBody: (id, { reveal } = {}) =>
+    request(`/posts/${id}/body${reveal ? '?reveal=true' : ''}`),
 }

@@ -42,11 +42,35 @@ class PostRepository(ABC):
     @abstractmethod
     async def list_for_book(self, book_id: BookId) -> list[Post]:
         """Every unarchived post for the book, top-level and replies together,
-        newest first."""
+        newest first.
+
+        Newest-first holds *within* a tie as well as across one. Notion
+        truncates `created_time` to the minute, so two posts a moment apart
+        share a timestamp routinely, and `PositionResolver` breaks that tie by
+        taking the first post listed. A store whose tie order is the creation
+        order reversed makes a member's mistyped chapter outlive their
+        correction.
+        """
+
+    @abstractmethod
+    async def list_replies(self, parent_post_id: PostId) -> list[Post]:
+        """Every unarchived reply to one post.
+
+        Separate from `list_for_book` because the delete cascade needs *all* of
+        them, and a book-wide listing is capped — a reply past the cap survived
+        its parent and then became invisible, since feed assembly drops a reply
+        whose parent is gone. Asking for what is actually needed also stops the
+        cascade paying for a whole book to find two replies.
+        """
 
     @abstractmethod
     async def get(self, post_id: PostId) -> Post | None:
-        """Retrieve by id, including archived posts."""
+        """Retrieve by id, including archived posts, with `is_deleted` set.
+
+        Archived posts are returned on purpose — a soft delete has to stay
+        recoverable. The flag is what keeps that from making a deleted post
+        indistinguishable from a live one.
+        """
 
     @abstractmethod
     async def add(self, post: Post, full_body: str | None = None) -> Post:

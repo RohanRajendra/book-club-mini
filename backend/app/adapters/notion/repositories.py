@@ -12,7 +12,12 @@ import logging
 from typing import Any
 
 from app.adapters.notion import rich_text
-from app.adapters.notion.mappers import BookMapper, PostMapper, POST_BOOK
+from app.adapters.notion.mappers import (
+    BookMapper,
+    PostMapper,
+    POST_BOOK,
+    POST_PARENT_ID,
+)
 from app.domain.entities import Book, Post
 from app.domain.values import BookId, PostId
 from app.ports.repositories import BookRepository, PostRepository
@@ -82,11 +87,42 @@ class NotionPostRepository(PostRepository):
             filter_={"property": POST_BOOK, "relation": {"contains": book_id.value}},
             sorts=[{"timestamp": "created_time", "direction": "descending"}],
         )
-        return [self._mapper.to_domain(page) for page in pages]
+        return self._mapped(pages)
+
+    async def list_replies(self, parent_post_id: PostId) -> list[Post]:
+        # Filtered by Notion rather than by scanning the book, so the cascade
+        # is not bounded by the book-wide page cap and costs one query instead
+        # of five.
+        pages = await _query(
+            self._client,
+            self._data_source_id,
+            filter_={
+                "property": POST_PARENT_ID,
+                "rich_text": {"equals": parent_post_id.value},
+            },
+        )
+        return self._mapped(pages)
 
     async def get(self, post_id: PostId) -> Post | None:
         page = await _get_page(self._client, post_id.value)
         return self._mapper.to_domain(page) if page else None
+
+    def _mapped(self, pages: list[dict[str, Any]]) -> list[Post]:
+        """Rows this app cannot represent are dropped, loudly.
+
+        Only a row with no book relation reaches this, and it was already
+        invisible — the query filters on that relation. What changes is that
+        the owner can find out why from the log instead of hunting a post that
+        never appears.
+        """
+        posts = []
+        for page in pages:
+            post = self._mapper.to_domain(page)
+            if post is None:
+                logger.warning("skipping post %s: no book relation", page.get("id"))
+                continue
+            posts.append(post)
+        return posts
 
     async def add(self, post: Post, full_body: str | None = None) -> Post:
         page = await self._client.post(

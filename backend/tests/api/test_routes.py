@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import pytest
 
+from app.domain.values import Position, PostType
 from tests.api.conftest import BOOK
+from tests.builders import ADA, GRACE, make_post
 
 
 async def test_health_reports_both_data_source_ids(client, container):
@@ -51,6 +53,23 @@ class TestBooks:
         response = await client.post("/api/books", json={"title": "   "})
         assert response.status_code == 400
         assert response.json() == {"error": "A book needs a title."}
+
+    async def test_add_book_with_an_oversize_title_returns_400_not_502(self, client):
+        """It used to pass every layer and be refused by Notion, which the
+        member read as "Can't reach Notion right now" — a 502 for a typing
+        mistake, naming no field."""
+        response = await client.post("/api/books", json={"title": "x" * 2001})
+        assert response.status_code == 400
+        assert response.json() == {
+            "error": "That title is 2,001 characters. The limit is 2,000."
+        }
+
+    async def test_a_whitespace_author_is_stored_as_no_author(self, client):
+        response = await client.post(
+            "/api/books", json={"title": "Jonathan Strange", "author": "   "}
+        )
+        assert response.status_code == 201
+        assert response.json()["author"] is None
 
     async def test_patch_book_updates_it(self, client):
         response = await client.patch(
@@ -99,13 +118,37 @@ class TestFeed:
     async def test_feed_as_the_other_member_recomputes_the_flags(self, client):
         await client.post(
             "/api/posts",
-            json={"book_id": BOOK.value, "type": "Progress", "chapter": 40},
+            json={"book_id": BOOK.value, "type": "Progress", "chapter": 20},
         )
         as_ada = await client.get(f"/api/books/{BOOK.value}/feed?as=Ada")
         as_grace = await client.get(f"/api/books/{BOOK.value}/feed?as=Grace")
 
         assert as_ada.json()["posts"][0]["is_own"] is True
         assert as_grace.json()["posts"][0]["is_own"] is False
+
+    async def test_filtering_the_feed_to_reply_is_refused(self, client):
+        """The filter runs over top-level posts after nesting — filtering in
+        the query would strip replies off their parents — so `?type=Reply`
+        could only ever return an empty feed, and no count in the response
+        explained why."""
+        response = await client.get(f"/api/books/{BOOK.value}/feed?type=Reply")
+        assert response.status_code == 422
+
+    async def test_the_filters_that_are_offered_still_work(self, client):
+        for kind in ("Progress", "Thought", "Question"):
+            response = await client.get(f"/api/books/{BOOK.value}/feed?type={kind}")
+            assert response.status_code == 200, kind
+
+    async def test_view_as_accepts_a_member_whatever_the_case(self, client):
+        """Notion's Member column is typed by hand, and the roster is typed
+        into a config file. `?as=ada` naming the same person as `Ada` must not
+        be a 400."""
+        response = await client.get(f"/api/books/{BOOK.value}/feed?as=ada")
+        assert response.status_code == 200
+
+    async def test_view_as_still_refuses_someone_who_is_not_a_member(self, client):
+        response = await client.get(f"/api/books/{BOOK.value}/feed?as=Bob")
+        assert response.status_code == 400
 
     async def test_post_response_never_includes_the_full_body(self, client):
         await client.post(
@@ -205,6 +248,39 @@ class TestPosts:
         assert response.status_code == 204
         assert response.content == b""
 
+    async def test_deleting_the_same_post_twice_returns_404_the_second_time(
+        self, client
+    ):
+        """A deleted post is archived rather than destroyed, so it is still
+        there to be found by id. It answered 204 every time until the use
+        cases learned to tell the difference."""
+        created = await client.post(
+            "/api/posts", json={"book_id": BOOK.value, "type": "Thought", "body": "x"}
+        )
+        post_id = created.json()["id"]
+        assert (await client.delete(f"/api/posts/{post_id}")).status_code == 204
+        second = await client.delete(f"/api/posts/{post_id}")
+        assert second.status_code == 404
+        assert second.json() == {"error": "That post is gone."}
+
+    async def test_editing_a_deleted_post_returns_404(self, client):
+        created = await client.post(
+            "/api/posts", json={"book_id": BOOK.value, "type": "Thought", "body": "x"}
+        )
+        post_id = created.json()["id"]
+        await client.delete(f"/api/posts/{post_id}")
+        response = await client.patch(f"/api/posts/{post_id}", json={"body": "Back."})
+        assert response.status_code == 404
+
+    async def test_the_body_of_a_deleted_post_returns_404(self, client):
+        created = await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Thought", "body": "y" * 2500},
+        )
+        post_id = created.json()["id"]
+        await client.delete(f"/api/posts/{post_id}")
+        assert (await client.get(f"/api/posts/{post_id}/body")).status_code == 404
+
     async def test_delete_of_an_unknown_post_returns_404(self, client):
         assert (await client.delete("/api/posts/nope")).status_code == 404
 
@@ -240,6 +316,26 @@ class TestPosts:
         assert len(posts) == 1
         assert posts[0]["replies"][0]["type"] == "Reply"
         assert posts[0]["replies"][0]["position"] == {"chapter": 9, "page": None}
+
+    async def test_an_empty_reply_sent_as_progress_returns_400(self, client):
+        """Progress is the one type exempt from needing a body, and a parent
+        overrides the requested type — so this combination is how an empty
+        reply reached the store."""
+        parent = await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Thought", "body": "Parent."},
+        )
+        response = await client.post(
+            "/api/posts",
+            json={
+                "book_id": BOOK.value,
+                "type": "Progress",
+                "chapter": 9,
+                "parent_post_id": parent.json()["id"],
+            },
+        )
+        assert response.status_code == 400
+        assert response.json() == {"error": "Write something first."}
 
     async def test_replying_to_a_reply_returns_400(self, client):
         parent = await client.post(
@@ -360,3 +456,246 @@ class TestCaching:
         await client.get(f"/api/books/{BOOK.value}/feed")
 
         assert [call[0] for call in uow.posts.calls] == ["list_for_book"]
+
+
+class TestChapterBoundsOverHttp:
+    """The seeded book states 30 chapters. These are the requests a client can
+    actually send, including the ones a well-behaved UI never would."""
+
+    async def test_a_chapter_past_the_end_is_a_400_naming_the_book(self, client):
+        response = await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Progress", "chapter": 99},
+        )
+        assert response.status_code == 400
+        assert response.json() == {
+            "error": "Piranesi has 30 chapters, so there is no chapter 99."
+        }
+
+    async def test_the_last_chapter_is_accepted(self, client):
+        response = await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Progress", "chapter": 30},
+        )
+        assert response.status_code == 201
+
+    async def test_a_refused_post_does_not_appear_in_the_feed(self, client):
+        await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Progress", "chapter": 99},
+        )
+        feed = await client.get(f"/api/books/{BOOK.value}/feed")
+        assert feed.json()["posts"] == []
+
+    async def test_editing_a_post_past_the_end_is_a_400(self, client):
+        created = await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Progress", "chapter": 10},
+        )
+        response = await client.patch(
+            f"/api/posts/{created.json()['id']}", json={"chapter": 99}
+        )
+        assert response.status_code == 400
+
+    async def test_lowering_a_books_chapter_count_below_a_post_is_a_400(self, client):
+        await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Progress", "chapter": 25},
+        )
+        response = await client.patch(
+            f"/api/books/{BOOK.value}", json={"title": "Piranesi", "total_chapters": 20}
+        )
+        assert response.status_code == 400
+        assert "25" in response.json()["error"]
+
+    @pytest.mark.parametrize("chapter", [0, -1, 10_001, 2**63])
+    async def test_a_chapter_outside_the_sane_range_is_rejected_by_schema(
+        self, client, chapter
+    ):
+        """422 rather than 400: these are not chapter numbers at all, and they
+        must never reach Notion's number property, which round-trips through a
+        float and loses precision above 2**53."""
+        response = await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Progress", "chapter": chapter},
+        )
+        assert response.status_code == 422
+
+    @pytest.mark.parametrize("page", [0, -1, 100_001])
+    async def test_a_page_outside_the_sane_range_is_rejected_by_schema(
+        self, client, page
+    ):
+        response = await client.post(
+            "/api/posts",
+            json={
+                "book_id": BOOK.value,
+                "type": "Progress",
+                "chapter": 5,
+                "page": page,
+            },
+        )
+        assert response.status_code == 422
+
+    @pytest.mark.parametrize("total", [0, -1, 10_001])
+    async def test_a_total_chapter_count_outside_the_sane_range_is_rejected(
+        self, client, total
+    ):
+        response = await client.post(
+            "/api/books", json={"title": "Piranesi", "total_chapters": total}
+        )
+        assert response.status_code == 422
+
+
+class TestBodyEndpointWithholdsSpoilers:
+    async def _ahead_of_me(self, client):
+        """I am at chapter 4; a post lands at chapter 20 from the other member.
+
+        `as=` cannot change attribution, so the spoiler post is written by me
+        and then read back as Grace — the only way this installation can hold
+        a post it did not write.
+        """
+        await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Progress", "chapter": 4},
+        )
+        created = await client.post(
+            "/api/posts",
+            json={
+                "book_id": BOOK.value,
+                "type": "Thought",
+                "chapter": 20,
+                "body": "x" * 4000,
+            },
+        )
+        return created.json()["id"]
+
+    async def test_a_long_post_i_wrote_is_returned(self, client):
+        post_id = await self._ahead_of_me(client)
+        response = await client.get(f"/api/posts/{post_id}/body")
+        assert response.status_code == 200
+        assert len(response.json()["body"]) == 4000
+
+    async def test_revealing_returns_the_body(self, client):
+        post_id = await self._ahead_of_me(client)
+        response = await client.get(f"/api/posts/{post_id}/body?reveal=true")
+        assert response.status_code == 200
+
+    async def test_an_unknown_post_is_still_a_404(self, client):
+        response = await client.get("/api/posts/nope/body")
+        assert response.status_code == 404
+
+    # The routes above can only produce posts written by this installation, and
+    # your own post is never a spoiler to you. Reaching the withheld case means
+    # seeding the other member's post through the same adapters the app uses.
+    @pytest.fixture
+    async def graces_spoiler(self, seeded):
+        uow = seeded()
+        async with uow:
+            await uow.posts.add(
+                make_post(
+                    id=None,
+                    book_id=BOOK,
+                    member=ADA,
+                    type=PostType.PROGRESS,
+                    position=Position(4),
+                )
+            )
+            post = await uow.posts.add(
+                make_post(
+                    id=None,
+                    book_id=BOOK,
+                    member=GRACE,
+                    position=Position(40),
+                    body_preview="He dies in chapter 40." + "x" * 1800,
+                    has_full_body=True,
+                ),
+                "He dies in chapter 40." + "x" * 3000,
+            )
+            await uow.commit()
+        return post
+
+    async def test_a_spoiler_body_is_withheld_with_403(self, client, graces_spoiler):
+        response = await client.get(f"/api/posts/{graces_spoiler.id.value}/body")
+        assert response.status_code == 403
+        assert response.json() == {"error": "That post is ahead of where you are."}
+
+    async def test_the_withheld_response_carries_none_of_the_text(
+        self, client, graces_spoiler
+    ):
+        response = await client.get(f"/api/posts/{graces_spoiler.id.value}/body")
+        assert "dies" not in response.text
+
+    async def test_revealing_a_spoiler_returns_it(self, client, graces_spoiler):
+        response = await client.get(
+            f"/api/posts/{graces_spoiler.id.value}/body?reveal=true"
+        )
+        assert response.status_code == 200
+        assert response.json()["body"].startswith("He dies in chapter 40.")
+
+
+class TestBlankIdentifiers:
+    """A value object raises on a blank id — correct for a programming error,
+    wrong for user input. Built straight from the path, that exception reached
+    the catch-all handler and answered 500 to a plainly invalid request.
+
+    Every route that takes an id is listed, because the bug was per-route: one
+    fixed route would have left the others crashing.
+    """
+
+    @pytest.mark.parametrize(
+        "method,path",
+        [
+            ("GET", "/api/books/%20/feed"),
+            ("PATCH", "/api/books/%20"),
+            ("GET", "/api/posts/%20/body"),
+            ("PATCH", "/api/posts/%20"),
+            ("DELETE", "/api/posts/%20"),
+        ],
+    )
+    async def test_a_whitespace_id_in_the_path_is_rejected(self, client, method, path):
+        response = await client.request(
+            method, path, json={"title": "Piranesi"} if method == "PATCH" else None
+        )
+        assert response.status_code == 422
+        assert response.json() == {"error": "That isn't a valid id."}
+
+    @pytest.mark.parametrize("book_id", ["", "   ", "\t"])
+    async def test_a_blank_book_id_in_the_body_is_rejected(self, client, book_id):
+        response = await client.post(
+            "/api/posts", json={"book_id": book_id, "type": "Thought", "body": "Hi."}
+        )
+        assert response.status_code == 422
+
+    async def test_a_whitespace_parent_post_id_is_rejected(self, client):
+        """Whitespace is truthy, so this used to pass the `if` in the router and
+        reach the value object."""
+        response = await client.post(
+            "/api/posts",
+            json={
+                "book_id": BOOK.value,
+                "type": "Thought",
+                "body": "Hi.",
+                "parent_post_id": "   ",
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_an_absent_parent_post_id_is_still_fine(self, client):
+        response = await client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Thought", "body": "Hi."},
+        )
+        assert response.status_code == 201
+
+    async def test_a_surrounding_space_on_a_real_id_is_tolerated(self, client):
+        """Stripped, not rejected — a copied-and-pasted id often carries one."""
+        response = await client.post(
+            "/api/posts",
+            json={"book_id": f" {BOOK.value} ", "type": "Thought", "body": "Hi."},
+        )
+        assert response.status_code == 201
+
+    async def test_an_unknown_but_well_formed_id_is_still_a_404(self, client):
+        """422 is for an id that cannot exist; 404 for one that simply does not."""
+        response = await client.get("/api/books/nope/feed")
+        assert response.status_code == 404

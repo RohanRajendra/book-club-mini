@@ -25,7 +25,8 @@ classDiagram
         +BookRepository books
         +PostRepository posts
         +list~Callable~ on_commit
-        +commit()*
+        +commit()
+        +_commit()*
         +rollback()*
         +__aenter__()
         +__aexit__(exc_type, exc, tb)
@@ -40,6 +41,7 @@ classDiagram
     class PostRepository {
         <<abstract>>
         +list_for_book(book_id) list~Post~
+        +list_replies(parent_post_id) list~Post~
         +get(post_id) Post?
         +add(post, full_body) Post
         +update(post, full_body) Post
@@ -62,17 +64,34 @@ documents or dictionaries. Storage-specific shapes must stop at your mapper.
 | `books.get` | `None` for an unknown identifier, not an exception |
 | `books.add` | Assign an identifier; return the stored entity |
 | `books.update` | Fail loudly on an unknown identifier |
-| `list_for_book` | Unarchived posts only, top-level and replies together, newest first |
-| `posts.get` | Returns archived posts too |
+| `list_for_book` | Unarchived posts only, top-level and replies together, newest first — inside a tie too |
+| `list_replies` | Unarchived replies to one post. Filter in the store, do not scan |
+| `posts.get` | Returns archived posts too, with `is_deleted` set |
 | `posts.add` | Assign identifier and timestamps; return the stored entity |
 | `posts.update` | Preserve `created_at`; refresh `edited_at` |
-| `archive` | Soft-delete. The record must remain retrievable by identifier |
+| `archive` | Soft-delete. The record must remain retrievable, and report `is_deleted` |
 | `get_full_body` | The complete body, or the preview when `has_full_body` is false |
 
 Two are easy to get wrong:
 
 - **`archive` is not a delete.** `list_for_book` must exclude archived posts
-  while `get` still returns them.
+  while `get` still returns them — *and says so*, by setting `is_deleted` on
+  what it returns. Returning an archived post that looks live is how a deleted
+  post stays editable; the flag is what the use cases read.
+- **`list_replies` exists because a capped listing cannot serve the delete
+  cascade.** Deleting a post archives its replies, and it used to find them by
+  scanning the book — which stops at 500 rows. A reply past the cap survived
+  its parent and then became invisible, because feed assembly drops a reply
+  whose parent is gone. Filter on the parent in the store. A relational backend
+  has the index already; against Notion it is a `rich_text` equality filter on
+  the parent id.
+- **Newest-first has to hold inside a tie.** Notion truncates `created_time`
+  to the minute, so posts a moment apart share a timestamp as a matter of
+  course, and `PositionResolver` breaks the tie by taking the first post
+  listed. Sorting on the timestamp alone is not enough: a stable sort keeps
+  creation order among equal keys, which is oldest-first — exactly backwards.
+  Order by `(created_at, creation_sequence)` descending. A store with a
+  monotonic key (a serial id, an insertion index) already has what it needs.
 - **`add` and `update` take `full_body` as a separate parameter.** The entity
   carries only the preview and a flag. Storing the full body on the entity would
   defeat the mechanism that keeps feed rendering from loading every body.
@@ -82,7 +101,7 @@ Two are easy to get wrong:
 A list of zero-argument callables invoked **after** a successful commit and
 **never** after a rollback. The container registers cache invalidation here.
 Two contract tests cover it. The base class provides `_fire_on_commit()`; call
-it at the end of your `commit`.
+it at the end of your `_commit`.
 
 ---
 
@@ -181,7 +200,8 @@ Four decisions embedded there:
 - **`has_full_body` is derived**, not stored: `full_body IS NOT NULL`. Storing
   both invites them to disagree.
 - **`archived` is a boolean**, and the partial index matches the query that
-  matters.
+  matters. `list_for_book` filters on it; `get` selects it and maps it onto
+  `Post.is_deleted`.
 - **`parent_post_id` is a real foreign key.** Notion cannot express this, which
   is why it uses plain text there. Use the constraint if you have it.
 
@@ -234,12 +254,13 @@ class PostgresUnitOfWork(UnitOfWork):
 
     async def __aexit__(self, exc_type, exc, tb):
         try:
-            if exc_type is not None:
-                await self.rollback()
+            await super().__aexit__(exc_type, exc, tb)
         finally:
             await self._pool.release(self._connection)
 
-    async def commit(self):
+    # `commit` is the base class's, and is what records that the scope
+    # succeeded. Implementations override `_commit`.
+    async def _commit(self):
         await self._transaction.commit()
         self._fire_on_commit()
 
@@ -251,10 +272,18 @@ Compare against `adapters/notion/unit_of_work.py`, which needs a compensation
 stack, property capture before updates, reverse replay and error logging — about
 90 lines that exist solely because Notion has no transactions.
 
-Two requirements the contract enforces:
+Three requirements the contract enforces:
 
-- `__aexit__` rolls back on an exception and **never** auto-commits.
+- `__aexit__` rolls back **unless the scope committed**, and never auto-commits.
+  A use case that writes and then returns `Err` never calls `commit`, and
+  leaving those writes in place is the half-applied state the unit of work
+  exists to prevent. Override `_commit`, not `commit`, so the base class can
+  record that the scope succeeded — that is what makes this a property of the
+  port rather than something each adapter has to remember.
 - `commit` fires `on_commit` only on success.
+- Commit is a durability boundary. Once it has been crossed there is nothing
+  left to undo, so an exception after it does **not** roll back — and writes
+  made after it are covered by nothing.
 
 ### Step 6 — Wire the container
 
@@ -394,9 +423,12 @@ Also revisit, since each exists to work around a Notion constraint:
 - [ ] `tests/unit` and `tests/api` pass unchanged
 - [ ] Column or field names confined to the adapter's mapper module
 - [ ] `on_commit` fires after commit, never after rollback
-- [ ] `__aexit__` rolls back on exception and does not auto-commit
-- [ ] `archive` soft-deletes; `get` still returns archived records
+- [ ] `__aexit__` rolls back unless committed, and does not auto-commit
+- [ ] `_commit` is overridden, not `commit`
+- [ ] `archive` soft-deletes; `get` still returns archived records, flagged `is_deleted`
 - [ ] `list_for_book` does not load full bodies
+- [ ] `list_replies` is filtered by the store, and is not capped by `list_for_book`
+- [ ] Two posts sharing a `created_at` list newest-first, not creation order
 - [ ] Container startup fails fast on an unreachable store
 - [ ] Configuration and `.env.example` updated
 - [ ] Coverage thresholds still met

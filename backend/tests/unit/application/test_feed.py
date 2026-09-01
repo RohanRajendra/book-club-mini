@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import datetime
+
 import pytest
 
 from app.application.dto import Spine
@@ -9,7 +12,14 @@ from app.application.feed import FeedAssembler
 from app.domain.entities import Post
 from app.domain.policies import ChapterFirstSpoilerPolicy, SpoilerPolicy
 from app.domain.services import PositionResolver, ScaleCalculator
-from app.domain.values import BookId, MemberName, Position, PostId, PostType
+from app.domain.values import (
+    BookId,
+    BookStatus,
+    MemberName,
+    Position,
+    PostId,
+    PostType,
+)
 from tests.builders import ADA, GRACE, ROSTER, at_minute, make_book, make_post, make_reply
 
 
@@ -185,6 +195,135 @@ class TestSpoilerFlags:
         assert all(not fp.is_spoiler for fp in feed.posts)
 
 
+def test_your_own_posts_are_not_blurred_when_notion_spells_your_name_differently():
+    """The harm behind case-sensitive member names.
+
+    A post the viewer wrote is never a spoiler for them. With `Ada` in the
+    roster and `ada` in Notion the comparison said two different people, so a
+    member's own posts came back blurred and their position was attributed to
+    nobody."""
+    posts = [
+        progress("p", MemberName("ada"), 40, 1),
+        post("t", minute=2, member=MemberName("ada"), position=Position(40)),
+    ]
+    feed = assembler(ChapterFirstSpoilerPolicy()).assemble(
+        make_book(total_chapters=None), posts, ADA
+    )
+    assert feed.positions[ADA] == Position(40)
+    assert [entry.is_spoiler for entry in feed.posts] == [False, False]
+    assert all(entry.is_own for entry in feed.posts)
+
+
+class TestOddTimestampsDoNotTakeTheFeedDown:
+    """Sorting is the one place where a single bad row breaks everything.
+
+    `sorted` raises on the first incomparable pair, so one post with no
+    timestamp, or one naive datetime among aware ones, is not a post that
+    renders oddly — it is a 500 for the whole book.
+    """
+
+    def test_a_post_with_no_created_at_does_not_crash_the_feed(self):
+        posts = [post("a", minute=1), post("b", minute=2)]
+        posts[0] = replace(posts[0], created_at=None)
+        feed = assembler().assemble(make_book(), posts, ADA)
+        assert len(feed.posts) == 2
+
+    def test_a_post_with_no_created_at_sorts_oldest(self):
+        """Newest-first, and an untimestamped post is not news."""
+        posts = [replace(post("a", minute=1), created_at=None), post("b", minute=2)]
+        feed = assembler().assemble(make_book(), posts, ADA)
+        assert [entry.post.id.value for entry in feed.posts] == ["b", "a"]
+
+    def test_a_naive_datetime_does_not_crash_the_feed(self):
+        """Aware and naive datetimes cannot be compared at all. Notion always
+        sends an offset, so this is a hand-edited row or a future adapter —
+        neither of which should be able to take the feed down."""
+        naive = datetime(2026, 3, 1, 12, 30)
+        posts = [replace(post("a", minute=1), created_at=naive), post("b", minute=2)]
+        feed = assembler().assemble(make_book(), posts, ADA)
+        assert len(feed.posts) == 2
+
+    def test_a_naive_datetime_is_read_as_utc_when_ordering(self):
+        posts = [
+            replace(post("a", minute=1), created_at=datetime(2026, 3, 1, 12, 30)),
+            post("b", minute=2),
+        ]
+        feed = assembler().assemble(make_book(), posts, ADA)
+        assert [entry.post.id.value for entry in feed.posts] == ["a", "b"]
+
+    def test_a_reply_with_no_created_at_does_not_crash_the_thread(self):
+        parent = post("p", minute=1)
+        replies = [
+            replace(make_reply(parent, GRACE, id=PostId("r1")), created_at=None),
+            make_reply(parent, GRACE, id=PostId("r2"), created_at=at_minute(3)),
+        ]
+        feed = assembler().assemble(make_book(), [parent, *replies], ADA)
+        assert [r.post.id.value for r in feed.posts[0].replies] == ["r1", "r2"]
+
+    def test_positions_survive_a_naive_timestamp(self):
+        """PositionResolver compares timestamps too, and one bad row there
+        loses every member's position rather than one post."""
+        posts = [
+            replace(progress("a", ADA, 4, 1), created_at=datetime(2026, 3, 1, 12, 0)),
+            progress("b", ADA, 9, 2),
+        ]
+        feed = assembler().assemble(make_book(), posts, ADA)
+        assert feed.positions[ADA] == Position(9)
+
+
+class TestARepliesPositionIsItsParents:
+    """A known limitation, pinned rather than fixed.
+
+    A reply copies its parent's position, so a reply written at chapter 40
+    under a chapter-2 thought carries chapter 2 and is never blurred. The
+    spoiler machinery is not the problem — replies are flagged independently —
+    the position fed to it is.
+
+    Changing it means deciding where a reply's position comes from: the
+    replier's own progress (a lookup on a path that has none today) or a
+    chapter field on the reply box (new UI on what is currently one text box).
+    Kept deliberately, because a thread reads as one conversation and a thread
+    that half-blurs is harder to follow than one that does not blur at all.
+    """
+
+    def test_a_reply_carries_its_parents_chapter_not_its_authors(self):
+        parent = post("p", minute=1, member=GRACE, position=Position(2))
+        reply = make_reply(parent, ADA, id=PostId("r"), created_at=at_minute(2))
+        feed = assembler(ChapterFirstSpoilerPolicy()).assemble(
+            make_book(total_chapters=None), [parent, reply], GRACE
+        )
+        assert feed.posts[0].replies[0].post.position == Position(2)
+
+    def test_so_a_reply_about_chapter_40_is_not_blurred_for_a_reader_at_chapter_2(self):
+        """The concrete consequence. Grace is at chapter 2; Ada replies from
+        chapter 40 and mentions what happens there."""
+        parent = post("p", minute=1, member=GRACE, position=Position(2))
+        reply = make_reply(parent, ADA, id=PostId("r"), created_at=at_minute(2))
+        feed = assembler(ChapterFirstSpoilerPolicy()).assemble(
+            make_book(total_chapters=None),
+            [progress("g", GRACE, 2, 0), parent, reply],
+            GRACE,
+        )
+        assert feed.posts[0].replies[0].is_spoiler is False
+
+    def test_replies_are_still_flagged_independently_of_their_parent(self):
+        """The machinery works; only the position it is given is inherited. If
+        a reply ever gets its own position, this is what makes blurring it
+        possible without touching the assembler."""
+        parent = post("p", minute=1, member=GRACE, position=Position(2))
+        reply = replace(
+            make_reply(parent, ADA, id=PostId("r"), created_at=at_minute(2)),
+            position=Position(40),
+        )
+        feed = assembler(ChapterFirstSpoilerPolicy()).assemble(
+            make_book(total_chapters=None),
+            [progress("g", GRACE, 2, 0), parent, reply],
+            GRACE,
+        )
+        assert feed.posts[0].is_spoiler is False
+        assert feed.posts[0].replies[0].is_spoiler is True
+
+
 class TestScale:
     def test_scale_is_estimated_when_the_book_has_no_total_chapters(self):
         book = make_book(total_chapters=None)
@@ -206,3 +345,41 @@ class TestScale:
         book = make_book(total_chapters=None)
         feed = assembler().assemble(book, [post("t", minute=1, position=Position(50))], ADA)
         assert feed.spine.max_chapter == 60
+
+
+class TestScaleForAFinishedBook:
+    """A finished book with no stated length ends at its furthest chapter.
+
+    Headroom leaves room for chapters not yet reached, and a finished book has
+    none — so it drew the last tick at 83% of the track and told a member who
+    had finished the book there was more of it.
+    """
+
+    def test_the_track_ends_at_the_furthest_posted_chapter(self):
+        book = make_book(total_chapters=None, status=BookStatus.FINISHED)
+        feed = assembler().assemble(book, [progress("p", ADA, 45, 1)], ADA)
+        assert feed.spine == Spine(max_chapter=45, is_estimated=False)
+
+    def test_a_thought_counts_as_evidence_not_only_progress(self):
+        """Writing about chapter 45 means someone reached chapter 45."""
+        book = make_book(total_chapters=None, status=BookStatus.FINISHED)
+        feed = assembler().assemble(
+            book, [post("t", minute=1, position=Position(45))], ADA
+        )
+        assert feed.spine.max_chapter == 45
+
+    def test_a_stated_total_still_wins(self):
+        book = make_book(total_chapters=50, status=BookStatus.FINISHED)
+        feed = assembler().assemble(book, [progress("p", ADA, 45, 1)], ADA)
+        assert feed.spine == Spine(max_chapter=50, is_estimated=False)
+
+    def test_a_finished_book_with_nothing_posted_is_still_a_guess(self):
+        book = make_book(total_chapters=None, status=BookStatus.FINISHED)
+        feed = assembler().assemble(book, [], ADA)
+        assert feed.spine == Spine(max_chapter=10, is_estimated=True)
+
+    def test_a_book_still_being_read_keeps_its_headroom(self):
+        for status in (BookStatus.CURRENTLY_READING, BookStatus.PAUSED, BookStatus.UPCOMING):
+            book = make_book(total_chapters=None, status=status)
+            feed = assembler().assemble(book, [progress("p", ADA, 45, 1)], ADA)
+            assert feed.spine == Spine(max_chapter=54, is_estimated=True), status

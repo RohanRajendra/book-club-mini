@@ -105,3 +105,71 @@ def test_the_in_memory_adapter_does_not_depend_on_notion_or_httpx():
         if name.split(".")[0] == "httpx" or "notion" in name.lower()
     }
     assert not forbidden
+
+
+class _Recording(UnitOfWork):
+    """A minimal implementation, to test the port's own behaviour.
+
+    Both real adapters make `rollback` a no-op after a commit — the fake clears
+    its snapshot, the Notion one clears its compensation stack — so neither can
+    show whether the port actually stops calling it. A backend whose rollback is
+    not idempotent would find out in production.
+    """
+
+    def __init__(self) -> None:
+        self.books = None
+        self.posts = None
+        self.on_commit = []
+        self.commits = 0
+        self.rollbacks = 0
+
+    async def _commit(self) -> None:
+        self.commits += 1
+
+    async def rollback(self) -> None:
+        self.rollbacks += 1
+
+
+class TestUnitOfWorkScope:
+    async def test_a_committed_scope_does_not_roll_back(self):
+        uow = _Recording()
+        async with uow:
+            await uow.commit()
+        assert (uow.commits, uow.rollbacks) == (1, 0)
+
+    async def test_an_uncommitted_scope_rolls_back(self):
+        uow = _Recording()
+        async with uow:
+            pass
+        assert (uow.commits, uow.rollbacks) == (0, 1)
+
+    async def test_an_exception_rolls_back_and_propagates(self):
+        uow = _Recording()
+        with pytest.raises(RuntimeError):
+            async with uow:
+                raise RuntimeError("boom")
+        assert uow.rollbacks == 1
+
+    async def test_an_exception_after_a_commit_does_not_roll_back(self):
+        """Commit is a durability boundary, and both adapters discard their
+        undo record when they cross it — the fake drops its snapshot, the
+        Notion one clears its compensation stack. There is nothing left to
+        undo, so the exception propagates without a rollback that could only
+        pretend to work.
+
+        The corollary, worth knowing: writes made *after* a commit inside the
+        same scope are not covered by anything."""
+        uow = _Recording()
+        with pytest.raises(RuntimeError):
+            async with uow:
+                await uow.commit()
+                raise RuntimeError("boom")
+        assert uow.rollbacks == 0
+
+    async def test_a_reused_unit_of_work_starts_each_scope_uncommitted(self):
+        uow = _Recording()
+        async with uow:
+            await uow.commit()
+        async with uow:
+            pass
+        assert uow.rollbacks == 1

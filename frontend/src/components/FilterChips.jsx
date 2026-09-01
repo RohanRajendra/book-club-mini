@@ -17,8 +17,8 @@ export function FilterChips({ filter, setFilter, counts }) {
           aria-pressed={filter === key}
           onClick={() => setFilter(key)}
         >
-          {label}
-          <span className="chip__count">{counts[key] ?? 0}</span>
+          <span className="chip__label">{label}</span>
+          <span className="chip__count mono">{counts[key] ?? 0}</span>
         </button>
       ))}
     </div>

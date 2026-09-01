@@ -1,13 +1,17 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { server } from '../test/setup'
 import { useBooks } from './useBooks'
 import { useComposer } from './useComposer'
 import { useFeed } from './useFeed'
 import { useMe } from './useMe'
+import { usePanels } from './usePanels'
+import { usePostEditor } from './usePostEditor'
 import { useReveal } from './useReveal'
+import { useTheme } from './useTheme'
+import { useToggleSet } from './useToggleSet'
 
 const post = (overrides = {}) => ({
   id: 'p1',
@@ -424,11 +428,111 @@ describe('useReveal', () => {
     expect(result.current.bodyFor({ id: 'p1', body_preview: 'The whole…' })).toBe('The whole…')
 
     await act(async () => {
-      await result.current.expand('p1')
+      await result.current.expand({ id: 'p1', has_full_body: true })
     })
 
     expect(result.current.isExpanded('p1')).toBe(true)
     expect(result.current.bodyFor({ id: 'p1', body_preview: 'The whole…' })).toBe('The whole thing.')
+  })
+
+  // A merely long post is already on the page; opening it must cost nothing.
+  it('expands a post that is not stored elsewhere without a request', async () => {
+    const { result } = renderHook(() => useReveal())
+    const long = { id: 'p1', has_full_body: false, body_preview: 'x'.repeat(900) }
+
+    await act(async () => {
+      await result.current.expand(long)
+    })
+
+    expect(result.current.isExpanded('p1')).toBe(true)
+    expect(result.current.bodyFor(long)).toBe(long.body_preview)
+  })
+
+  // The server withholds a body ahead of the viewer unless told otherwise, so
+  // the decision has to travel with the request or Read anyway then Read more
+  // fails on exactly the posts the feature exists for.
+  it('asks for a revealed spoiler with reveal=true', async () => {
+    const seen = []
+    server.use(
+      http.get('/api/posts/p1/body', ({ request }) => {
+        seen.push(new URL(request.url).searchParams.get('reveal'))
+        return HttpResponse.json({ body: 'The whole thing.' })
+      }),
+    )
+    const { result } = renderHook(() => useReveal())
+    const spoiler = { id: 'p1', has_full_body: true, is_spoiler: true }
+
+    act(() => result.current.reveal('p1'))
+    await act(async () => {
+      await result.current.expand(spoiler)
+    })
+
+    expect(seen).toEqual(['true'])
+  })
+
+  it('does not ask to reveal a post that is not a spoiler', async () => {
+    const seen = []
+    server.use(
+      http.get('/api/posts/p1/body', ({ request }) => {
+        seen.push(new URL(request.url).searchParams.get('reveal'))
+        return HttpResponse.json({ body: 'The whole thing.' })
+      }),
+    )
+    const { result } = renderHook(() => useReveal())
+
+    await act(async () => {
+      await result.current.expand({ id: 'p1', has_full_body: true, is_spoiler: false })
+    })
+
+    expect(seen).toEqual([null])
+  })
+
+  it('does not ask to reveal a spoiler the member has not revealed', async () => {
+    const seen = []
+    server.use(
+      http.get('/api/posts/p1/body', ({ request }) => {
+        seen.push(new URL(request.url).searchParams.get('reveal'))
+        return HttpResponse.json({ body: 'The whole thing.' })
+      }),
+    )
+    const { result } = renderHook(() => useReveal())
+
+    await act(async () => {
+      await result.current.expand({ id: 'p1', has_full_body: true, is_spoiler: true })
+    })
+
+    expect(seen).toEqual([null])
+  })
+
+  it('collapses back to the preview', async () => {
+    server.use(http.get('/api/posts/p1/body', () => HttpResponse.json({ body: 'The whole thing.' })))
+    const { result } = renderHook(() => useReveal())
+
+    await act(async () => {
+      await result.current.expand({ id: 'p1', has_full_body: true })
+    })
+    act(() => result.current.collapse('p1'))
+
+    expect(result.current.isExpanded('p1')).toBe(false)
+    expect(result.current.bodyFor({ id: 'p1', body_preview: 'The whole…' })).toBe('The whole…')
+  })
+
+  it('collapsing one post leaves another expanded', async () => {
+    server.use(
+      http.get('/api/posts/:id/body', ({ params }) =>
+        HttpResponse.json({ body: `Body of ${params.id}.` }),
+      ),
+    )
+    const { result } = renderHook(() => useReveal())
+
+    await act(async () => {
+      await result.current.expand({ id: 'p1', has_full_body: true })
+      await result.current.expand({ id: 'p2', has_full_body: true })
+    })
+    act(() => result.current.collapse('p1'))
+
+    expect(result.current.isExpanded('p1')).toBe(false)
+    expect(result.current.isExpanded('p2')).toBe(true)
   })
 })
 
@@ -450,5 +554,363 @@ describe('useMe', () => {
     const { result } = renderHook(() => useMe())
     await waitFor(() => expect(result.current.error).toBeTruthy())
     expect(result.current.loading).toBe(false)
+  })
+})
+
+describe('useToggleSet', () => {
+  it('starts from the ids it was given', () => {
+    const { result } = renderHook(() => useToggleSet(['p1']))
+    expect(result.current.has('p1')).toBe(true)
+    expect(result.current.has('p2')).toBe(false)
+  })
+
+  it('flips one id without touching the others', () => {
+    const { result } = renderHook(() => useToggleSet())
+    act(() => result.current.toggle('p1'))
+    expect(result.current.has('p1')).toBe(true)
+    expect(result.current.has('p2')).toBe(false)
+  })
+
+  it('flips back', () => {
+    const { result } = renderHook(() => useToggleSet(['p1']))
+    act(() => result.current.toggle('p1'))
+    expect(result.current.has('p1')).toBe(false)
+    expect(result.current.size).toBe(0)
+  })
+})
+
+describe('usePanels', () => {
+  beforeEach(() => window.localStorage.clear())
+
+  it('opens a panel it has never heard of', () => {
+    const { result } = renderHook(() => usePanels())
+    expect(result.current.isOpen('book')).toBe(true)
+  })
+
+  it('closes on toggle', () => {
+    const { result } = renderHook(() => usePanels())
+    act(() => result.current.toggle('book'))
+    expect(result.current.isOpen('book')).toBe(false)
+  })
+
+  it('reopens on a second toggle', () => {
+    const { result } = renderHook(() => usePanels())
+    act(() => result.current.toggle('book'))
+    act(() => result.current.toggle('book'))
+    expect(result.current.isOpen('book')).toBe(true)
+  })
+
+  it('remembers a collapse across a remount', () => {
+    const first = renderHook(() => usePanels())
+    act(() => first.result.current.toggle('book'))
+    first.unmount()
+
+    const { result } = renderHook(() => usePanels())
+    expect(result.current.isOpen('book')).toBe(false)
+  })
+
+  it('honours a default of closed', () => {
+    const { result } = renderHook(() => usePanels({ progress: false }))
+    expect(result.current.isOpen('progress')).toBe(false)
+    expect(result.current.isOpen('book')).toBe(true)
+  })
+
+  it('opens a panel added after the stored map was written', () => {
+    window.localStorage.setItem('bookclub.panels', JSON.stringify({ book: false }))
+    const { result } = renderHook(() => usePanels())
+    expect(result.current.isOpen('filter')).toBe(true)
+  })
+})
+
+describe('useTheme', () => {
+  let media
+
+  function stubMatchMedia(matches) {
+    const listeners = new Set()
+    const query = {
+      matches,
+      addEventListener: (_event, fn) => listeners.add(fn),
+      removeEventListener: (_event, fn) => listeners.delete(fn),
+    }
+    window.matchMedia = vi.fn(() => query)
+    return {
+      change(next) {
+        query.matches = next
+        listeners.forEach((fn) => fn({ matches: next }))
+      },
+      get listeners() {
+        return listeners
+      },
+    }
+  }
+
+  beforeEach(() => {
+    window.localStorage.clear()
+    media = stubMatchMedia(false)
+  })
+
+  afterEach(() => {
+    delete window.matchMedia
+  })
+
+  it('follows the system when nothing has been chosen', () => {
+    media = stubMatchMedia(true)
+    const { result } = renderHook(() => useTheme())
+    expect(result.current.theme).toBe('dark')
+    expect(result.current.followsSystem).toBe(true)
+  })
+
+  it('paints the theme onto the document element', () => {
+    const { result } = renderHook(() => useTheme())
+    expect(document.documentElement.dataset.theme).toBe('light')
+    act(() => result.current.toggle())
+    expect(document.documentElement.dataset.theme).toBe('dark')
+  })
+
+  it('toggles between the two', () => {
+    const { result } = renderHook(() => useTheme())
+    act(() => result.current.toggle())
+    expect(result.current.isDark).toBe(true)
+    act(() => result.current.toggle())
+    expect(result.current.isDark).toBe(false)
+  })
+
+  it('keeps following the system until the member decides', () => {
+    const { result } = renderHook(() => useTheme())
+    act(() => media.change(true))
+    expect(result.current.theme).toBe('dark')
+  })
+
+  it('stops following the system once the member decides', () => {
+    const { result } = renderHook(() => useTheme())
+    act(() => result.current.setTheme('light'))
+    act(() => media.change(true))
+    expect(result.current.theme).toBe('light')
+    expect(result.current.followsSystem).toBe(false)
+  })
+
+  it('remembers the choice across a remount', () => {
+    const first = renderHook(() => useTheme())
+    act(() => first.result.current.setTheme('dark'))
+    first.unmount()
+
+    const { result } = renderHook(() => useTheme())
+    expect(result.current.theme).toBe('dark')
+    expect(result.current.followsSystem).toBe(false)
+  })
+
+  it('stops listening when it unmounts', () => {
+    const { unmount } = renderHook(() => useTheme())
+    expect(media.listeners.size).toBe(1)
+    unmount()
+    expect(media.listeners.size).toBe(0)
+  })
+
+  it('falls back to light in a browser without matchMedia', () => {
+    delete window.matchMedia
+    const { result } = renderHook(() => useTheme())
+    expect(result.current.theme).toBe('light')
+  })
+
+  it('ignores a stored value that is not a theme', () => {
+    window.localStorage.setItem('bookclub.theme', '"chartreuse"')
+    const { result } = renderHook(() => useTheme())
+    expect(result.current.theme).toBe('light')
+  })
+})
+
+describe('usePostEditor', () => {
+  const short = post({ body_preview: 'A thought.', has_full_body: false })
+  const long = post({ id: 'p9', body_preview: 'The first 1,900…', has_full_body: true })
+
+  function bodyRoute(handler) {
+    server.use(http.get('/api/posts/:id/body', handler))
+  }
+
+  it('opens on the preview when that is the whole post', () => {
+    const { result } = renderHook(() => usePostEditor(short))
+    expect(result.current.fields.body).toBe('A thought.')
+    expect(result.current.loaded).toBe(true)
+  })
+
+  it('opens on the fields of the post being edited', () => {
+    const { result } = renderHook(() => usePostEditor(short))
+    expect(result.current.fields).toMatchObject({ chapter: '9', page: '204' })
+  })
+
+  it('leaves the position fields empty when the post has none', () => {
+    const { result } = renderHook(() => usePostEditor(post({ position: null })))
+    expect(result.current.fields).toMatchObject({ chapter: '', page: '' })
+  })
+
+  // Saving body_preview would truncate a long post to its own preview.
+  it('will not let a long post be saved before its full body arrives', async () => {
+    bodyRoute(() => HttpResponse.json({ body: 'The whole thing.' }))
+    const { result } = renderHook(() => usePostEditor(long))
+
+    expect(result.current.canSave).toBe(false)
+    await waitFor(() => expect(result.current.loaded).toBe(true))
+    expect(result.current.fields.body).toBe('The whole thing.')
+    expect(result.current.canSave).toBe(true)
+  })
+
+  it('reports a body that will not load', async () => {
+    bodyRoute(() => HttpResponse.error())
+    const { result } = renderHook(() => usePostEditor(long))
+    await waitFor(() => expect(result.current.error).toBeTruthy())
+    expect(result.current.canSave).toBe(false)
+  })
+
+  it('sends the edited values as numbers', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    const { result } = renderHook(() => usePostEditor(short, { onSave }))
+
+    act(() => result.current.setField('body', 'Revised.'))
+    act(() => result.current.setField('chapter', '11'))
+    await act(async () => {
+      await result.current.save()
+    })
+
+    expect(onSave).toHaveBeenCalledWith({ body: 'Revised.', chapter: 11, page: 204 })
+  })
+
+  it('sends null for a position that was cleared', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    const { result } = renderHook(() => usePostEditor(short, { onSave }))
+
+    act(() => result.current.setField('chapter', ''))
+    await act(async () => {
+      await result.current.save()
+    })
+
+    expect(onSave).toHaveBeenCalledWith({ body: 'A thought.', chapter: null, page: null })
+  })
+
+  it('clearing the chapter clears the page with it', () => {
+    const { result } = renderHook(() => usePostEditor(short))
+    act(() => result.current.setField('chapter', ''))
+    expect(result.current.fields.page).toBe('')
+  })
+
+  it('keeps the edit on screen when the save fails', async () => {
+    const onSave = vi.fn().mockRejectedValue(new Error('Notion said no.'))
+    const { result } = renderHook(() => usePostEditor(short, { onSave }))
+
+    act(() => result.current.setField('body', 'Revised.'))
+    let saved
+    await act(async () => {
+      saved = await result.current.save()
+    })
+
+    expect(saved).toBe(false)
+    expect(result.current.error).toBe('Notion said no.')
+    expect(result.current.fields.body).toBe('Revised.')
+  })
+})
+
+describe('useComposer chapter bounds', () => {
+  const BOOK = { id: 'b1', title: 'Piranesi', total_chapters: 45 }
+
+  const composerFor = (book = BOOK) =>
+    renderHook(() => useComposer({ book, onSubmit: vi.fn() }))
+
+  it('refuses a chapter past the end of the book', async () => {
+    const { result } = composerFor()
+    act(() => result.current.chooseType('Progress'))
+    act(() => result.current.setField('chapter', '99'))
+
+    await act(async () => {
+      await result.current.submit()
+    })
+    expect(result.current.error).toBe(
+      'Piranesi has 45 chapters, so there is no chapter 99.',
+    )
+  })
+
+  it('accepts the last chapter', () => {
+    const { result } = composerFor()
+    act(() => result.current.chooseType('Progress'))
+    act(() => result.current.setField('chapter', '45'))
+    expect(result.current.isValid).toBe(true)
+  })
+
+  it('refuses one past the last chapter', () => {
+    const { result } = composerFor()
+    act(() => result.current.chooseType('Progress'))
+    act(() => result.current.setField('chapter', '46'))
+    expect(result.current.isValid).toBe(false)
+  })
+
+  it('does not submit a refused chapter', async () => {
+    const onSubmit = vi.fn()
+    const { result } = renderHook(() => useComposer({ book: BOOK, onSubmit }))
+    act(() => result.current.chooseType('Progress'))
+    act(() => result.current.setField('chapter', '99'))
+
+    await act(async () => {
+      await result.current.submit()
+    })
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('accepts any chapter when the book states no length', () => {
+    const { result } = composerFor({ title: 'X', total_chapters: null })
+    act(() => result.current.chooseType('Progress'))
+    act(() => result.current.setField('chapter', '9000'))
+    expect(result.current.isValid).toBe(true)
+  })
+
+  // Number('abc') is NaN, which serialises to null and reaches the server as a
+  // missing chapter with a misleading error.
+  it('refuses a chapter that is not a number', () => {
+    const { result } = composerFor()
+    act(() => result.current.chooseType('Progress'))
+    act(() => result.current.setField('chapter', 'abc'))
+    expect(result.current.isValid).toBe(false)
+  })
+
+  it('bounds a thought as well as a progress update', () => {
+    const { result } = composerFor()
+    act(() => result.current.chooseType('Thought'))
+    act(() => result.current.setField('body', 'A thought.'))
+    act(() => result.current.setField('chapter', '99'))
+    expect(result.current.isValid).toBe(false)
+  })
+})
+
+describe('usePostEditor chapter bounds', () => {
+  const BOOK = { id: 'b1', title: 'Piranesi', total_chapters: 45 }
+  const short = post({ body_preview: 'A thought.', has_full_body: false })
+
+  it('will not save a chapter past the end of the book', async () => {
+    const onSave = vi.fn()
+    const { result } = renderHook(() => usePostEditor(short, { book: BOOK, onSave }))
+
+    act(() => result.current.setField('chapter', '99'))
+    expect(result.current.canSave).toBe(false)
+
+    let saved
+    await act(async () => {
+      saved = await result.current.save()
+    })
+
+    expect(saved).toBe(false)
+    expect(onSave).not.toHaveBeenCalled()
+    expect(result.current.error).toBe(
+      'Piranesi has 45 chapters, so there is no chapter 99.',
+    )
+  })
+
+  it('saves the last chapter', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    const { result } = renderHook(() => usePostEditor(short, { book: BOOK, onSave }))
+
+    act(() => result.current.setField('chapter', '45'))
+    await act(async () => {
+      await result.current.save()
+    })
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ chapter: 45 }),
+    )
   })
 })

@@ -6,9 +6,13 @@ domain field is renamed. Conversion is explicit, in one direction, in one place.
 
 from __future__ import annotations
 
+from enum import Enum
+
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from typing import Annotated
+
+from pydantic import BaseModel, Field, StringConstraints
 
 from app.application.dto import Feed, FeedPost
 from app.domain.entities import Book, Post
@@ -123,26 +127,54 @@ class FeedResponse(BaseModel):
         )
 
 
+#: Sanity ceilings, not the business rule. Whether a chapter fits *this* book
+#: needs the book and is decided in the use case; these only stop a value that
+#: could never be a chapter from reaching Notion's number property, which
+#: round-trips through a float and loses precision above 2**53.
+MAX_CHAPTER = 10_000
+MAX_PAGE = 100_000
+
+#: An identifier arriving in a request body. Stripped, and empty after
+#: stripping is a 422 — the value object raises on a blank id, and that
+#: exception reaching the router used to surface as a 500.
+Identifier = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class FeedFilter(str, Enum):
+    """The post types a feed can be filtered to.
+
+    `Reply` is deliberately absent. The filter runs over top-level posts after
+    nesting — filtering in the query would strip replies off their parents — so
+    `?type=Reply` could only ever return an empty feed, with no count in the
+    response to explain why. A test pins this to the set the feed actually
+    counts, so the two cannot drift.
+    """
+
+    PROGRESS = "Progress"
+    THOUGHT = "Thought"
+    QUESTION = "Question"
+
+
 class BookRequest(BaseModel):
     title: str
     author: str | None = None
     status: BookStatus = BookStatus.UPCOMING
-    total_chapters: int | None = Field(default=None, ge=1)
+    total_chapters: int | None = Field(default=None, ge=1, le=MAX_CHAPTER)
 
 
 class CreatePostRequest(BaseModel):
-    book_id: str
+    book_id: Identifier
     type: PostType
     body: str = ""
-    chapter: int | None = Field(default=None, ge=1)
-    page: int | None = Field(default=None, ge=1)
-    parent_post_id: str | None = None
+    chapter: int | None = Field(default=None, ge=1, le=MAX_CHAPTER)
+    page: int | None = Field(default=None, ge=1, le=MAX_PAGE)
+    parent_post_id: Identifier | None = None
 
 
 class EditPostRequest(BaseModel):
     body: str = ""
-    chapter: int | None = Field(default=None, ge=1)
-    page: int | None = Field(default=None, ge=1)
+    chapter: int | None = Field(default=None, ge=1, le=MAX_CHAPTER)
+    page: int | None = Field(default=None, ge=1, le=MAX_PAGE)
 
 
 class BodyResponse(BaseModel):

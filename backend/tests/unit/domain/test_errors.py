@@ -19,13 +19,17 @@ def test_the_expected_failures_are_all_present():
         "BookNotFound",
         "PostNotFound",
         "NotPostOwner",
+        "SpoilerWithheld",
         "CannotReplyToReply",
         "ReplyBookMismatch",
         "ChapterRequiredForProgress",
         "PageRequiresChapter",
+        "ChapterBeyondBook",
+        "TotalChaptersBelowPosts",
         "BodyRequired",
         "BodyTooLong",
         "TitleRequired",
+        "TextTooLong",
         "UnknownMember",
     }
     assert {error.__name__ for error in all_domain_errors()} == expected

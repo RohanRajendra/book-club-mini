@@ -11,12 +11,22 @@ which is the concrete meaning of the swappability goal.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from app.adapters.memory import InMemoryUnitOfWork, in_memory_uow_factory
 from app.domain.entities import Book, Post
-from app.domain.values import BookId, BookStatus, PostId, PostType
-from tests.builders import ADA, GRACE, long_body, make_book, make_post, make_reply
+from app.domain.values import BookId, BookStatus, Position, PostId, PostType
+from tests.builders import (
+    ADA,
+    EPOCH,
+    GRACE,
+    long_body,
+    make_book,
+    make_post,
+    make_reply,
+)
 
 NO_TRANSACTIONS = (
     "Notion has no transactions; rollback is compensating and is covered by "
@@ -37,6 +47,17 @@ class UnitOfWorkContract:
 
     @pytest.fixture
     def uow_factory(self):
+        raise NotImplementedError
+
+    @pytest.fixture
+    def tied_uow(self):
+        """A unit of work that stamps everything added through it with the same
+        `created_at`.
+
+        Timestamps are store-assigned, so only an adapter can arrange a tie —
+        and a tie is ordinary rather than exotic, because Notion truncates
+        `created_time` to the minute.
+        """
         raise NotImplementedError
 
     # ---------------------------------------------------------------- books
@@ -70,6 +91,36 @@ class UnitOfWorkContract:
             assert updated.author == "Susanna Clarke"
             assert updated.total_chapters == 30
             assert (await uow.books.get(stored.id)).status is BookStatus.CURRENTLY_READING
+
+    async def test_clearing_an_author_removes_it(self, uow):
+        """An update carries the whole entity, so a field left empty must end up
+        empty in the store.
+
+        A datastore that merges an update rather than replacing it will keep the
+        old value unless the adapter says "set this to nothing" explicitly. That
+        is invisible to an in-memory fake, which replaces the record — so it has
+        to be pinned here, where both implementations answer.
+        """
+        async with uow:
+            stored = await uow.books.add(
+                Book(title="Piranesi", author="Susanna Clarke")
+            )
+            updated = await uow.books.update(
+                Book(id=stored.id, title="Piranesi", author=None)
+            )
+
+            assert updated.author is None
+            assert (await uow.books.get(stored.id)).author is None
+
+    async def test_clearing_a_total_chapter_count_removes_it(self, uow):
+        async with uow:
+            stored = await uow.books.add(Book(title="Piranesi", total_chapters=30))
+            updated = await uow.books.update(
+                Book(id=stored.id, title="Piranesi", total_chapters=None)
+            )
+
+            assert updated.total_chapters is None
+            assert (await uow.books.get(stored.id)).total_chapters is None
 
     async def test_list_all_returns_books_from_an_empty_store_as_empty_list(self, uow):
         async with uow:
@@ -108,12 +159,90 @@ class UnitOfWorkContract:
             await uow.posts.archive(stored.id)
             assert await uow.posts.get(stored.id) is not None
 
+    async def test_a_retrieved_archived_post_says_it_is_deleted(self, uow):
+        """`get` keeps returning archived posts on purpose — a soft delete has
+        to stay recoverable. That only works if the caller can tell, otherwise
+        a deleted post is indistinguishable from a live one and stays fully
+        operable."""
+        async with uow:
+            stored = await uow.posts.add(make_post(id=None))
+            await uow.posts.archive(stored.id)
+            assert (await uow.posts.get(stored.id)).is_deleted is True
+
+    async def test_a_live_post_does_not_say_it_is_deleted(self, uow):
+        async with uow:
+            stored = await uow.posts.add(make_post(id=None))
+            assert (await uow.posts.get(stored.id)).is_deleted is False
+            listed = await uow.posts.list_for_book(stored.book_id)
+            assert [post.is_deleted for post in listed] == [False]
+
+    async def test_leaving_the_scope_without_committing_discards_the_writes(
+        self, uow
+    ):
+        """Only an exception used to trigger rollback. A use case that wrote and
+        then returned `Err` — one added guard clause away — left those writes
+        durable and unannounced, which is the half-applied state the unit of
+        work exists to prevent."""
+        async with uow:
+            stored = await uow.posts.add(make_post(id=None))
+
+        async with uow:
+            assert await uow.posts.list_for_book(stored.book_id) == []
+
+    async def test_committing_still_keeps_the_writes(self, uow):
+        async with uow:
+            stored = await uow.posts.add(make_post(id=None))
+            await uow.commit()
+
+        async with uow:
+            listed = await uow.posts.list_for_book(stored.book_id)
+            assert [post.id for post in listed] == [stored.id]
+
+    async def test_posts_sharing_a_created_at_are_listed_newest_first(
+        self, tied_uow
+    ):
+        """`PositionResolver` breaks a tie by taking the first post listed, so
+        which one that is belongs to the contract rather than to an adapter's
+        sort implementation. Backwards, and a member who corrects a mistyped
+        chapter keeps the mistake."""
+        async with tied_uow:
+            first = await tied_uow.posts.add(make_post(id=None, created_at=None))
+            second = await tied_uow.posts.add(make_post(id=None, created_at=None))
+            assert first.created_at == second.created_at
+
+            listed = await tied_uow.posts.list_for_book(first.book_id)
+            assert [post.id for post in listed] == [second.id, first.id]
+
     async def test_reply_is_listed_alongside_top_level_posts(self, uow):
         async with uow:
             parent = await uow.posts.add(make_post(id=None))
             reply = await uow.posts.add(make_reply(parent, GRACE, id=None))
             listed = await uow.posts.list_for_book(parent.book_id)
             assert {post.id for post in listed} == {parent.id, reply.id}
+
+    async def test_list_replies_returns_only_the_replies_to_that_post(self, uow):
+        async with uow:
+            parent = await uow.posts.add(make_post(id=None))
+            other = await uow.posts.add(make_post(id=None))
+            mine = await uow.posts.add(make_reply(parent, GRACE, id=None))
+            await uow.posts.add(make_reply(other, GRACE, id=None))
+
+            listed = await uow.posts.list_replies(parent.id)
+            assert [post.id for post in listed] == [mine.id]
+
+    async def test_list_replies_is_empty_for_a_post_with_none(self, uow):
+        async with uow:
+            parent = await uow.posts.add(make_post(id=None))
+            assert await uow.posts.list_replies(parent.id) == []
+
+    async def test_list_replies_excludes_archived_replies(self, uow):
+        """Already-deleted replies need no work from the cascade, and counting
+        them would report a delete as larger than it was."""
+        async with uow:
+            parent = await uow.posts.add(make_post(id=None))
+            reply = await uow.posts.add(make_reply(parent, GRACE, id=None))
+            await uow.posts.archive(reply.id)
+            assert await uow.posts.list_replies(parent.id) == []
 
     async def test_short_post_reports_has_full_body_false(self, uow):
         async with uow:
@@ -204,6 +333,30 @@ class UnitOfWorkContract:
             )
             assert await uow.posts.get_full_body(stored.id) == second
 
+    async def test_clearing_a_page_number_removes_it(self, uow):
+        """A member who corrects "Ch 5 p.100" to "Ch 5" must not be silently
+        left on page 100."""
+        async with uow:
+            stored = await uow.posts.add(
+                make_post(id=None, position=Position(5, 100))
+            )
+            updated = await uow.posts.update(
+                replace(stored, position=Position(5)), None
+            )
+
+            assert updated.position == Position(5)
+            assert (await uow.posts.get(stored.id)).position == Position(5)
+
+    async def test_clearing_a_position_removes_it(self, uow):
+        async with uow:
+            stored = await uow.posts.add(
+                make_post(id=None, type=PostType.THOUGHT, position=Position(5, 100))
+            )
+            updated = await uow.posts.update(replace(stored, position=None), None)
+
+            assert updated.position is None
+            assert (await uow.posts.get(stored.id)).position is None
+
     # ------------------------------------------------------- transactional
 
     @pytest.mark.fake_only(reason=NO_TRANSACTIONS)
@@ -289,6 +442,10 @@ class TestInMemoryUnitOfWork(UnitOfWorkContract):
     @pytest.fixture
     def uow(self):
         return InMemoryUnitOfWork()
+
+    @pytest.fixture
+    def tied_uow(self):
+        return InMemoryUnitOfWork(clock=lambda: EPOCH)
 
     @pytest.fixture
     def uow_factory(self):

@@ -11,7 +11,7 @@ Notion, and a hand-edit must not 500 the app.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from app.adapters.notion import rich_text
@@ -37,10 +37,22 @@ POST_PARENT_ID = "Parent Post ID"
 
 
 def _timestamp(page: dict[str, Any], key: str) -> datetime | None:
+    """Always timezone-aware, or absent. Never raises.
+
+    Sorting compares these, and `sorted` raises on the first pair it cannot
+    compare — so one unparseable or naive value is a 500 for the whole feed
+    rather than one odd-looking row. Notion sends an offset on every timestamp;
+    anything else here came from a hand-edited row, and UTC is the only reading
+    of it that is not a guess about someone's local clock.
+    """
     raw = page.get(key)
     if not raw:
         return None
-    return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    try:
+        parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 class BookMapper:
@@ -58,28 +70,36 @@ class BookMapper:
 
         return Book(
             id=BookId(page["id"]),
-            title=rich_text.plain(properties, BOOK_TITLE) or "Untitled",
-            author=rich_text.plain(properties, BOOK_AUTHOR) or None,
+            # Stripped, because these are free-form Notion text fields and the
+            # docs invite hand-edits. A whitespace title is truthy, so it used
+            # to reach the entity guard and raise — a 500 on the book list and
+            # on every feed for that book, from typing a space.
+            title=rich_text.plain(properties, BOOK_TITLE).strip() or "Untitled",
+            author=rich_text.plain(properties, BOOK_AUTHOR).strip() or None,
             status=status,
             total_chapters=total if total and total > 0 else None,
         )
 
     def to_properties(self, book: Book) -> dict[str, Any]:
-        properties: dict[str, Any] = {
+        """Every property, always — an absent one is not the same as an empty one.
+
+        Notion merges a page update rather than replacing it, so a property left
+        out keeps whatever it held before. Omitting `None` therefore makes a
+        field impossible to clear, and returns 200 while doing nothing.
+        """
+        return {
             BOOK_TITLE: {"title": rich_text.to_rich_text(book.title)},
             BOOK_STATUS: {"select": {"name": book.status.value}},
+            BOOK_AUTHOR: {"rich_text": rich_text.to_rich_text(book.author or "")},
+            BOOK_TOTAL_CHAPTERS: {"number": book.total_chapters},
         }
-        if book.author is not None:
-            properties[BOOK_AUTHOR] = {
-                "rich_text": rich_text.to_rich_text(book.author)
-            }
-        if book.total_chapters is not None:
-            properties[BOOK_TOTAL_CHAPTERS] = {"number": book.total_chapters}
-        return properties
 
 
 class PostMapper:
-    def to_domain(self, page: dict[str, Any]) -> Post:
+    def to_domain(self, page: dict[str, Any]) -> Post | None:
+        """`None` for a row this app cannot represent — see the book relation
+        below. Every other oddity is forgiven, because the alternative is a
+        500 on a feed that one hand-edit made unreadable."""
         properties = page.get("properties", {})
 
         raw_type = rich_text.select_name(properties, POST_TYPE)
@@ -109,11 +129,18 @@ class PostMapper:
         if post_type is PostType.PROGRESS and position is None:
             post_type = PostType.THOUGHT
 
+        # A post with no book cannot be represented, and inventing an id for
+        # it was worse than dropping it: `BookId("orphan")` names no book,
+        # breaks the guarantee that an identifier never silently stands in for
+        # another, and leaves the row invisible anyway — the feed queries by
+        # relation, and this one has none. The repositories log and skip.
         book_ids = rich_text.relation_ids(properties, POST_BOOK)
+        if not book_ids:
+            return None
 
         return Post(
             id=PostId(page["id"]),
-            book_id=BookId(book_ids[0]) if book_ids else BookId("orphan"),
+            book_id=BookId(book_ids[0]),
             member=MemberName(
                 rich_text.select_name(properties, POST_MEMBER) or "Unknown"
             ),
@@ -124,6 +151,9 @@ class PostMapper:
             parent_post_id=parent_post_id,
             created_at=_timestamp(page, "created_time"),
             edited_at=_timestamp(page, "last_edited_time"),
+            # `archived` is the pre-2025-09-03 spelling; a workspace on either
+            # version has to report a trashed page as deleted.
+            is_deleted=bool(page.get("in_trash") or page.get("archived")),
         )
 
     def to_properties(self, post: Post) -> dict[str, Any]:
@@ -137,14 +167,20 @@ class PostMapper:
             },
             POST_HAS_FULL_BODY: {"checkbox": post.has_full_body},
         }
-        if post.position is not None:
-            properties[POST_CHAPTER] = {"number": post.position.chapter}
-            if post.position.page is not None:
-                properties[POST_PAGE] = {"number": post.position.page}
-        if post.parent_post_id is not None:
-            properties[POST_PARENT_ID] = {
-                "rich_text": rich_text.to_rich_text(post.parent_post_id.value)
-            }
+        # Written even when empty, for the reason given on BookMapper: a
+        # property left out of a Notion update keeps its previous value, so
+        # omitting None is what makes a position impossible to clear.
+        properties[POST_CHAPTER] = {
+            "number": post.position.chapter if post.position else None
+        }
+        properties[POST_PAGE] = {
+            "number": post.position.page if post.position else None
+        }
+        properties[POST_PARENT_ID] = {
+            "rich_text": rich_text.to_rich_text(
+                post.parent_post_id.value if post.parent_post_id else ""
+            )
+        }
         return properties
 
     @staticmethod

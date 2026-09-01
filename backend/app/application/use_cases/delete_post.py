@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from app.application.post_access import post_is_gone
 from app.domain import errors
 from app.domain.result import Err, Ok, Result
 from app.domain.values import MemberName, PostId
@@ -24,6 +25,14 @@ class DeletePost:
     visible with some replies missing, rather than a vanished parent with
     orphans still counting against the query budget.
 
+    They are asked for by parent, not found by scanning the book. A book-wide
+    listing stops at 500 rows, and a reply past that survived its parent —
+    then vanished, because feed assembly drops a reply whose parent is gone.
+
+    The list is taken twice: once before archiving and once after, because a
+    reply created in between would be missed by the first and is refused after
+    the second.
+
     This is the second operation that justifies the unit of work: the whole
     delete runs inside one scope, so a failure triggers compensation.
     """
@@ -36,19 +45,26 @@ class DeletePost:
         uow = self._uow_factory()
         async with uow:
             post = await uow.posts.get(command.post_id)
-            if post is None:
-                return Err(errors.PostNotFound("That post is gone."))
+            gone = post_is_gone(post)
+            if gone is not None:
+                return Err(gone)
             if post.member != command.member:
                 return Err(errors.NotPostOwner("You can only delete your own posts."))
 
-            replies = [
-                other
-                for other in await uow.posts.list_for_book(post.book_id)
-                if other.parent_post_id == post.id
-            ]
+            replies = await uow.posts.list_replies(post.id)
             for reply in replies:
                 await uow.posts.archive(reply.id)
             await uow.posts.archive(post.id)
 
+            # A reply written between that scan and this point would survive
+            # its parent, and then vanish — feed assembly drops a reply whose
+            # parent is gone. Creating one fails now that the parent reads as
+            # deleted, so a second look closes the window for everything but a
+            # create already in flight. One extra query, on an operation that
+            # happens rarely.
+            late = await uow.posts.list_replies(post.id)
+            for reply in late:
+                await uow.posts.archive(reply.id)
+
             await uow.commit()
-            return Ok(len(replies) + 1)
+            return Ok(len(replies) + len(late) + 1)

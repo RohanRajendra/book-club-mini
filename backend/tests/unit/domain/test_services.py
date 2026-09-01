@@ -2,19 +2,24 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.domain.entities import Post
+from app.domain.entities import PREVIEW_LIMIT, Post
 from app.domain.services import (
     MAX_BODY,
+    MIN_PREVIEW,
     MIN_SCALE,
     BodySplitter,
     PositionResolver,
     ScaleCalculator,
 )
+from app.domain.text import utf16_length
 from app.domain.values import BookId, MemberName, Position, PostId, PostType
 
 ADA = MemberName("Ada")
 GRACE = MemberName("Grace")
 T0 = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
+
+#: One code point, two UTF-16 code units.
+EMOJI = "\U0001F600"
 
 
 def progress(member, chapter, page=None, minutes=0) -> Post:
@@ -55,6 +60,18 @@ class TestPositionResolver:
         posts = [progress(ADA, 40, minutes=1), progress(ADA, 4, minutes=2)]
         assert self.resolve(posts) == {ADA: Position(4)}
 
+    def test_a_tie_resolves_to_the_post_listed_first(self):
+        """Notion truncates `created_time` to the *minute* — verified against a
+        live workspace, where every page reports `:00.000Z`. So a correction
+        posted seconds after a mistake ties with it, and this is the ordinary
+        case rather than an exotic one.
+
+        `list_for_book` is newest-first, ties included, so the first of a tied
+        pair is the correction. Keeping the last one kept the mistake — the
+        precise workflow the resolver was written to protect."""
+        posts = [progress(ADA, 4, minutes=0), progress(ADA, 40, minutes=0)]
+        assert self.resolve(posts) == {ADA: Position(4)}
+
     def test_resolver_ignores_thoughts_and_questions(self):
         posts = [
             progress(ADA, 4, minutes=1),
@@ -81,11 +98,17 @@ class TestPositionResolver:
         assert self.resolve(posts) == {ADA: Position(4)}
 
     def test_resolver_handles_two_progress_posts_with_identical_timestamps(self):
-        """Notion timestamps have second resolution, so a tie is reachable.
-        Last in input order wins, deterministically."""
+        """First in input order wins, deterministically.
+
+        This test previously asserted the opposite, on the reasoning that a tie
+        is arbitrary so any deterministic answer would do. It is not arbitrary:
+        input arrives newest-first, so taking the last one takes the oldest —
+        and the test below already says the resolver "must not take the last
+        one it happens to walk past". It only ever checked that with distinct
+        timestamps, where the rule makes no difference."""
         first, second = progress(ADA, 7), progress(ADA, 8)
-        assert self.resolve([first, second]) == {ADA: Position(8)}
-        assert self.resolve([second, first]) == {ADA: Position(7)}
+        assert self.resolve([first, second]) == {ADA: Position(7)}
+        assert self.resolve([second, first]) == {ADA: Position(8)}
 
     def test_resolver_is_independent_of_input_order(self):
         """The feed query sorts created_time descending, so the resolver
@@ -138,6 +161,52 @@ class TestBodySplitter:
         assert has_full
         assert full == "x" * 5000
 
+    def test_space_sparse_body_is_not_cut_back_to_its_one_early_space(self):
+        """The reported shape: a one-word lead-in and then an unbroken run.
+
+        Honouring the only word boundary would preview a 5000-character post as
+        the single character `I`."""
+        preview, _, _ = self.split("I " + "x" * 5000)
+        assert len(preview) >= 1520
+
+    def test_a_newline_counts_as_a_word_boundary(self):
+        """Prose that breaks by line rather than by space still cuts cleanly."""
+        preview, _, _ = self.split("word\n" * 1000)
+        assert not preview.endswith("wor")
+        assert preview == preview.rstrip()
+
+    def test_a_boundary_that_keeps_most_of_the_budget_is_honoured(self):
+        """A long token at the end is dropped, not sliced, while it is cheap to
+        do so."""
+        body = "word " * 340 + "u" * 200 + " tail"
+        preview, _, _ = self.split(body)
+        assert preview.endswith("word")
+        assert len(preview) >= 1520
+
+    def test_a_run_of_whitespace_at_the_cut_is_not_left_dangling(self):
+        """The boundary match lands on the last whitespace of a run, so the
+        rest of the run is still on the end of the preview until it is
+        stripped."""
+        preview, _, _ = self.split("word  " * 400)
+        assert preview.endswith("word")
+        assert preview == preview.rstrip()
+
+    def test_a_boundary_at_exactly_the_floor_is_honoured(self):
+        """The threshold is inclusive: a preview of exactly MIN_PREVIEW is
+        long enough."""
+        preview, _, _ = self.split("w" * MIN_PREVIEW + " " + "x" * 1000)
+        assert preview == "w" * MIN_PREVIEW
+
+    def test_a_boundary_one_character_below_the_floor_is_ignored(self):
+        preview, _, _ = self.split("w" * (MIN_PREVIEW - 1) + " " + "x" * 1000)
+        assert len(preview) == 1900
+
+    def test_a_boundary_that_would_discard_most_of_the_budget_is_ignored(self):
+        """One space at 100 characters in, then an unbroken run: cutting there
+        would throw away 95% of the preview, so the limit wins."""
+        preview, _, _ = self.split("w" * 100 + " " + "x" * 5000)
+        assert len(preview) == 1900
+
     def test_long_body_full_text_is_returned_complete_including_the_preview_portion(
         self,
     ):
@@ -149,9 +218,10 @@ class TestBodySplitter:
         assert full == body
         assert full.startswith(preview)
 
-    def test_body_over_200000_chars_is_rejected(self):
-        """A Notion rich text array holds at most 100 objects of 2000 chars."""
-        with pytest.raises(ValueError, match="200000|200,000"):
+    def test_body_over_the_ceiling_is_rejected(self):
+        """A Notion rich text array holds at most 100 objects of 2000 UTF-16
+        units, less one unit per object that an astral boundary can waste."""
+        with pytest.raises(ValueError, match=r"199900|199,900"):
             self.split("x" * (MAX_BODY + 1))
 
     def test_body_at_exactly_the_ceiling_is_accepted(self):
@@ -161,6 +231,57 @@ class TestBodySplitter:
     def test_empty_body_is_allowed(self):
         """A bare position is a valid Progress post."""
         assert self.split("") == ("", False, None)
+
+
+class TestBodySplitterMeasuresUtf16:
+    """Every limit here is a Notion property limit, and Notion counts UTF-16.
+
+    An emoji-heavy body measured in code points produces a preview twice the
+    size Notion will accept, and the write fails with a 502 the member reads as
+    "Can't reach Notion right now".
+    """
+
+    split = staticmethod(BodySplitter().split)
+
+    def test_an_emoji_preview_stays_within_the_limit(self):
+        preview, has_full, _ = self.split(EMOJI * 2000)
+        assert utf16_length(preview) <= PREVIEW_LIMIT
+        assert has_full
+
+    def test_a_body_of_emoji_that_fits_is_not_split(self):
+        """950 emoji is 1900 units — exactly the limit, and one post, not two."""
+        body = EMOJI * (PREVIEW_LIMIT // 2)
+        assert self.split(body) == (body, False, None)
+
+    def test_one_emoji_past_the_limit_is_split(self):
+        body = EMOJI * (PREVIEW_LIMIT // 2 + 1)
+        preview, has_full, full = self.split(body)
+        assert has_full and full == body
+        assert utf16_length(preview) <= PREVIEW_LIMIT
+
+    def test_the_preview_never_ends_in_half_a_surrogate_pair(self):
+        preview, _, _ = self.split(EMOJI * 2000)
+        preview.encode("utf-8")  # raises on a lone surrogate
+        assert preview == EMOJI * (utf16_length(preview) // 2)
+
+    def test_the_word_boundary_floor_counts_units_too(self):
+        """800 emoji is 1600 units — comfortably past the floor — but only 800
+        characters, well below it. Measured in code points the cut looks too
+        expensive to honour and the preview is hacked off mid-text instead."""
+        preview, _, _ = self.split(EMOJI * 800 + " " + EMOJI * 2000)
+        assert preview == EMOJI * 800
+        assert utf16_length(preview) >= MIN_PREVIEW
+        assert len(preview) < MIN_PREVIEW
+
+    def test_the_body_ceiling_counts_units_not_code_points(self):
+        """100,001 emoji is 200,002 units: over the ceiling despite being far
+        fewer than 200,000 characters."""
+        with pytest.raises(ValueError):
+            self.split(EMOJI * (MAX_BODY // 2 + 1))
+
+    def test_a_body_of_emoji_at_exactly_the_ceiling_is_accepted(self):
+        preview, has_full, full = self.split(EMOJI * (MAX_BODY // 2))
+        assert has_full and utf16_length(full) == MAX_BODY
 
 
 class TestScaleCalculator:
@@ -186,7 +307,11 @@ class TestScaleCalculator:
 
     def test_scale_never_falls_below_the_highest_observed_chapter(self):
         """The trap: chapter 400 in a book whose Total Chapters says 30 must
-        still fit on the track rather than drawing a tick off the end."""
+        still fit on the track rather than drawing a tick off the end.
+
+        The write paths now refuse to create that post, so this defends against
+        a row edited directly in Notion — a route the docs tell members they
+        may use. Rendering is where an overshoot has to be survivable."""
         assert self.scale(total_chapters=30, observed_max=400)[0] >= 400
 
     def test_scale_extends_past_a_stated_total_without_becoming_estimated(self):
@@ -202,3 +327,53 @@ class TestScaleCalculator:
 
     def test_headroom_rounds_up(self):
         assert self.scale(total_chapters=None, observed_max=11) == (14, True)
+
+
+class TestScaleCalculatorForAFinishedBook:
+    """A finished book with no stated length has already ended.
+
+    Headroom exists to leave room for chapters not yet reached. There are none,
+    so it draws the furthest tick at 83% of the track and tells a member who
+    has finished the book that there is more of it left.
+    """
+
+    scale = staticmethod(ScaleCalculator().calculate)
+
+    def test_the_furthest_posted_chapter_becomes_the_length(self):
+        assert self.scale(
+            total_chapters=None, observed_max=45, is_finished=True
+        ) == (45, False)
+
+    def test_it_is_not_reported_as_an_estimate(self):
+        """The track is drawn solid and labelled with the chapter rather than
+        `?`, because the far end is no longer a guess about a book still being
+        read."""
+        assert self.scale(
+            total_chapters=None, observed_max=45, is_finished=True
+        )[1] is False
+
+    def test_a_stated_total_still_wins(self):
+        """Evidence from posts is the fallback, not an override."""
+        assert self.scale(
+            total_chapters=50, observed_max=45, is_finished=True
+        ) == (50, False)
+
+    def test_the_minimum_does_not_apply(self):
+        """The floor of ten belongs to the guessing branch. A finished novella
+        of three chapters must not be drawn as a ten-chapter book."""
+        assert self.scale(
+            total_chapters=None, observed_max=3, is_finished=True
+        ) == (3, False)
+
+    def test_no_posted_chapters_falls_back_to_a_guess(self):
+        """Marked finished with nothing to infer from. There is no evidence to
+        prefer, so this stays an estimate rather than becoming a scale of
+        zero."""
+        assert self.scale(
+            total_chapters=None, observed_max=None, is_finished=True
+        ) == (MIN_SCALE, True)
+
+    def test_an_unfinished_book_still_gets_headroom(self):
+        assert self.scale(
+            total_chapters=None, observed_max=45, is_finished=False
+        ) == (54, True)

@@ -12,11 +12,12 @@ import pytest
 import respx
 
 from app.adapters.notion.http import BASE_URL, NOTION_VERSION, NotionHttpClient, TokenBucket
+from app.application.use_cases.delete_post import DeletePost, DeletePostCommand
 from app.adapters.notion.repositories import MAX_PAGES, PAGE_SIZE
 from app.adapters.notion.unit_of_work import NotionUnitOfWork
 from app.domain.entities import Book, Post
 from app.domain.values import BookId, MemberName, Position, PostId, PostType
-from tests.builders import ADA, long_body, make_post
+from tests.builders import ADA, long_body, make_post, make_reply
 from tests.integration.notion_stub import BOOKS_DB, BOOKS_DS, POSTS_DS, NotionStub
 
 BOOK = BookId("book-page-id")
@@ -147,6 +148,48 @@ async def test_pagination_stops_at_the_page_cap_and_warns(uow, stub, caplog):
     assert "page cap" in caplog.text
 
 
+async def test_a_row_with_no_book_relation_is_skipped_not_returned_as_none(
+    uow, stub, caplog
+):
+    """`list_for_book` can never see one — it filters on that very relation.
+    `list_replies` filters on the parent instead, so it can, and a `None` in
+    that list is an AttributeError inside the delete cascade rather than a
+    post that renders oddly."""
+    async with uow:
+        parent = await uow.posts.add(make_post(id=None, book_id=BOOK, member=ADA))
+        reply = await uow.posts.add(make_reply(parent, ADA, id=None))
+        stub.pages[reply.id.value]["properties"]["Book"] = {"relation": []}
+
+        with caplog.at_level("WARNING"):
+            listed = await uow.posts.list_replies(parent.id)
+
+    assert listed == []
+    assert "no book relation" in caplog.text
+
+
+async def test_the_delete_cascade_reaches_a_reply_beyond_the_page_cap(uow, stub):
+    """The cascade found replies by scanning `list_for_book`, which stops at
+    500 rows. A reply older than that survived its parent and then vanished:
+    feed assembly drops a reply whose parent is missing, so it was invisible
+    forever while still counting against the query budget."""
+    async with uow:
+        parent = await uow.posts.add(make_post(id=None, book_id=BOOK, member=ADA))
+        reply = await uow.posts.add(make_reply(parent, ADA, id=None))
+        # Newest-first, so these push the pair off the end of the last page.
+        for _ in range(PAGE_SIZE * MAX_PAGES):
+            await uow.posts.add(make_post(id=None, book_id=BOOK))
+
+        assert parent.id not in {post.id for post in await uow.posts.list_for_book(BOOK)}
+        await uow.commit()
+
+    result = await DeletePost(uow_factory=lambda: uow).execute(
+        DeletePostCommand(post_id=parent.id, member=ADA)
+    )
+
+    assert result.unwrap() == 2
+    assert stub.pages[reply.id.value]["in_trash"] is True
+
+
 async def test_long_post_creation_sends_a_page_write_and_a_block_append(uow, stub):
     body = long_body(4000)
     async with uow:
@@ -168,6 +211,7 @@ async def test_a_long_body_becomes_one_block_not_many(uow, stub):
             make_post(id=None, book_id=BOOK, body_preview=body[:1900], has_full_body=True),
             body,
         )
+        await uow.commit()
     assert len(stub.blocks[post.id.value]) == 1
 
 
@@ -236,6 +280,7 @@ class TestUpdateTransitions:
                 self.rewrite(post, preview=second[:1900], has_full=True), second
             )
             assert await uow.posts.get_full_body(post.id) == second
+            await uow.commit()
 
         assert f"/blocks/{block_id}" in stub.paths("PATCH")
         assert len(stub.blocks[post.id.value]) == 1
@@ -272,9 +317,11 @@ async def test_archive_falls_back_to_archived_when_in_trash_is_rejected(uow, stu
         stub.requests.clear()
         await uow.posts.archive(post.id)
 
-    payloads = [body for verb, path, body in stub.requests if verb == "PATCH"]
-    assert payloads == [{"in_trash": True}, {"archived": True}]
-    assert stub.pages[post.id.value]["in_trash"] is True
+        # Asserted inside the scope: leaving it uncommitted now replays the
+        # compensation stack, whose own PATCHes would drown these two.
+        payloads = [body for verb, path, body in stub.requests if verb == "PATCH"]
+        assert payloads == [{"in_trash": True}, {"archived": True}]
+        assert stub.pages[post.id.value]["in_trash"] is True
 
 
 async def test_an_archive_failure_that_is_not_a_400_is_not_retried_as_archived(uow, stub):
@@ -289,9 +336,9 @@ async def test_an_archive_failure_that_is_not_a_400_is_not_retried_as_archived(u
         with pytest.raises(NotionApiError):
             await uow.posts.archive(post.id)
 
-    assert [body for verb, path, body in stub.requests if verb == "PATCH"] == [
-        {"in_trash": True}
-    ]
+        assert [body for verb, path, body in stub.requests if verb == "PATCH"] == [
+            {"in_trash": True}
+        ]
 
 
 async def test_getting_a_missing_page_returns_none_rather_than_raising(uow):

@@ -5,8 +5,8 @@ from __future__ import annotations
 from app.application.dto import Feed, FeedPost, Spine
 from app.domain.entities import Book, Post
 from app.domain.policies import SpoilerPolicy
-from app.domain.services import PositionResolver, ScaleCalculator
-from app.domain.values import MemberName, PostType
+from app.domain.services import PositionResolver, ScaleCalculator, created_order
+from app.domain.values import BookStatus, MemberName, PostType
 
 #: The filter chip labels exposed to the client.
 COUNT_KEYS = {
@@ -40,7 +40,7 @@ class FeedAssembler:
         viewer_position = positions.get(viewer)
 
         top_level = [post for post in posts if not post.is_reply]
-        top_level.sort(key=lambda post: post.created_at, reverse=True)
+        top_level.sort(key=created_order, reverse=True)
 
         replies_by_parent: dict[str, list[Post]] = {}
         for post in posts:
@@ -48,7 +48,7 @@ class FeedAssembler:
                 replies_by_parent.setdefault(post.parent_post_id.value, []).append(post)
         for group in replies_by_parent.values():
             # A conversation reads downward inside a feed that reads upward.
-            group.sort(key=lambda post: post.created_at)
+            group.sort(key=created_order)
 
         counts = {"all": len(top_level)} | {
             key: sum(1 for post in top_level if post.type is post_type_)
@@ -85,7 +85,11 @@ class FeedAssembler:
 
         observed = [post.position.chapter for post in posts if post.position]
         max_chapter, is_estimated = self._scale.calculate(
-            book.total_chapters, max(observed) if observed else None
+            book.total_chapters,
+            max(observed) if observed else None,
+            # Every post counts, not just progress. A thought written at
+            # chapter 45 is evidence someone reached chapter 45.
+            is_finished=book.status is BookStatus.FINISHED,
         )
 
         return Feed(

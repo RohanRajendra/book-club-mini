@@ -66,6 +66,21 @@ class PageRequiresChapter(DomainError):
 
 
 @dataclass(frozen=True)
+class ChapterBeyondBook(DomainError):
+    code: ClassVar[str] = "chapter_beyond_book"
+
+
+@dataclass(frozen=True)
+class TotalChaptersBelowPosts(DomainError):
+    code: ClassVar[str] = "total_chapters_below_posts"
+
+
+@dataclass(frozen=True)
+class SpoilerWithheld(DomainError):
+    code: ClassVar[str] = "spoiler_withheld"
+
+
+@dataclass(frozen=True)
 class BodyRequired(DomainError):
     code: ClassVar[str] = "body_required"
 
@@ -78,6 +93,18 @@ class BodyTooLong(DomainError):
 @dataclass(frozen=True)
 class TitleRequired(DomainError):
     code: ClassVar[str] = "title_required"
+
+
+@dataclass(frozen=True)
+class TextTooLong(DomainError):
+    """A short text field over the store's per-property cap.
+
+    Separate from `BodyTooLong`, whose limit is three orders of magnitude
+    larger and reached by a different route: a body is chunked across many
+    properties, a title lives in exactly one.
+    """
+
+    code: ClassVar[str] = "text_too_long"
 
 
 @dataclass(frozen=True)

@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
+import { positionProblem } from '../lib/positionRules'
 
 export const COUNT_THRESHOLD = 1700
 export const PREVIEW_LIMIT = 1900
@@ -12,7 +13,7 @@ const EMPTY = { type: 'Progress', chapter: '', page: '', body: '' }
  * the default server-side would make it impossible for a member to
  * deliberately post without a position.
  */
-export function useComposer({ viewerPosition, onSubmit } = {}) {
+export function useComposer({ viewerPosition, book, onSubmit } = {}) {
   const [open, setOpen] = useState(false)
   const [fields, setFields] = useState(EMPTY)
   const [error, setError] = useState(null)
@@ -48,18 +49,18 @@ export function useComposer({ viewerPosition, onSubmit } = {}) {
     })
   }, [])
 
-  const validate = useCallback((values) => {
-    if (values.type === 'Progress' && !values.chapter.trim()) {
-      return 'Progress needs a chapter number.'
-    }
-    if (values.type !== 'Progress' && !values.body.trim()) {
-      return 'Write something first.'
-    }
-    if (values.page.trim() && !values.chapter.trim()) {
-      return 'A page needs a chapter to go with it.'
-    }
-    return null
-  }, [])
+  const validate = useCallback(
+    (values) => {
+      if (values.type === 'Progress' && !values.chapter.trim()) {
+        return 'Progress needs a chapter number.'
+      }
+      if (values.type !== 'Progress' && !values.body.trim()) {
+        return 'Write something first.'
+      }
+      return positionProblem(values, book)
+    },
+    [book],
+  )
 
   const submit = useCallback(async () => {
     const problem = validate(fields)

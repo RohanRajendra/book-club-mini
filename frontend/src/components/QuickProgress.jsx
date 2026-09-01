@@ -1,17 +1,22 @@
 import { useState } from 'react'
+import { positionProblem } from '../lib/positionRules'
 
 /**
  * The most-used action in the app: it must not require opening the composer.
  * Submittable by keyboard alone.
  */
-export function QuickProgress({ onSubmit, onCancel, error }) {
+export function QuickProgress({ onSubmit, onCancel, book, error }) {
   const [chapter, setChapter] = useState('')
   const [page, setPage] = useState('')
   const [busy, setBusy] = useState(false)
 
+  // The most-used action in the app, so it gets the same bound as the
+  // composer rather than relying on the server to refuse it.
+  const problem = positionProblem({ chapter, page }, book)
+
   async function handleSubmit(event) {
     event.preventDefault()
-    if (!chapter.trim()) return
+    if (!chapter.trim() || problem) return
     setBusy(true)
     try {
       await onSubmit({ chapter: Number(chapter), page: page.trim() ? Number(page) : null })
@@ -43,13 +48,17 @@ export function QuickProgress({ onSubmit, onCancel, error }) {
         value={page}
         onChange={(event) => setPage(event.target.value)}
       />
-      <button type="submit" className="primary" disabled={!chapter.trim() || busy}>
+      <button
+        type="submit"
+        className="primary"
+        disabled={!chapter.trim() || busy || problem !== null}
+      >
         Post
       </button>
       <button type="button" onClick={onCancel}>
         Cancel
       </button>
-      {error && <span className="muted">{error}</span>}
+      {(problem || error) && <span className="muted">{problem || error}</span>}
     </form>
   )
 }

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.domain.entities import Book, Post
+from app.domain.entities import FIELD_LIMIT, Book, Post
 from app.domain.values import BookId, BookStatus, MemberName, Position, PostId, PostType
 
 NOW = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
@@ -49,6 +49,61 @@ class TestBook:
         """A book being created has no Notion page yet."""
         assert Book(title="Piranesi").id is None
 
+    def test_book_rejects_a_title_over_the_property_cap(self):
+        """The use case refuses this first with a readable message. This is the
+        last-line assertion behind it, and it is what a future caller that
+        skips the use case runs into."""
+        with pytest.raises(ValueError, match="title"):
+            Book(title="x" * (FIELD_LIMIT + 1))
+
+    def test_book_rejects_an_author_over_the_property_cap(self):
+        with pytest.raises(ValueError, match="author"):
+            Book(title="Piranesi", author="x" * (FIELD_LIMIT + 1))
+
+    def test_book_measures_those_caps_in_utf16_units(self):
+        """1001 emoji is 2002 units — over the cap at half the character
+        count, and exactly what Notion refuses."""
+        with pytest.raises(ValueError, match="title"):
+            Book(title="\U0001F600" * 1001)
+
+    def test_book_allows_a_title_at_exactly_the_cap(self):
+        assert Book(title="x" * FIELD_LIMIT).title == "x" * FIELD_LIMIT
+
+
+class TestBookContainsChapter:
+    """The bound that stops a post landing outside the book it belongs to.
+
+    Boundaries in both directions, because an off-by-one here either rejects
+    the last chapter of every book or admits one past the end.
+    """
+
+    def book(self, total: int | None = 45) -> Book:
+        return Book(id=BookId("b1"), title="Piranesi", total_chapters=total)
+
+    def test_a_chapter_inside_the_book_fits(self):
+        assert self.book().contains_chapter(44) is True
+
+    def test_the_last_chapter_fits(self):
+        assert self.book().contains_chapter(45) is True
+
+    def test_one_past_the_end_does_not_fit(self):
+        assert self.book().contains_chapter(46) is False
+
+    def test_far_past_the_end_does_not_fit(self):
+        assert self.book().contains_chapter(99) is False
+
+    def test_the_first_chapter_fits(self):
+        assert self.book().contains_chapter(1) is True
+
+    def test_a_book_of_one_chapter_admits_only_that_chapter(self):
+        assert self.book(total=1).contains_chapter(1) is True
+        assert self.book(total=1).contains_chapter(2) is False
+
+    def test_a_book_that_states_no_length_admits_anything(self):
+        """Demanding a chapter count before the app is usable was rejected, so
+        an unknown length cannot be allowed to exclude anything."""
+        assert self.book(total=None).contains_chapter(99_999) is True
+
 
 class TestPost:
     def test_post_is_reply_when_parent_post_id_present(self):
@@ -78,13 +133,45 @@ class TestPost:
     def test_post_was_edited_is_false_for_a_create_then_block_append(self):
         """Creating a long post is a page write followed by a block append, and
         the append bumps last_edited_time. Without a threshold every post over
-        1900 characters is born showing `edited`."""
-        post = a_post(created_at=NOW, edited_at=NOW + timedelta(milliseconds=800))
+        1900 characters is born showing `edited`.
+
+        This previously described a long post and built a short one. The
+        threshold only ever existed for the second write, and only a long post
+        has one."""
+        post = a_post(
+            has_full_body=True, created_at=NOW, edited_at=NOW + timedelta(seconds=60)
+        )
         assert not post.was_edited
 
     def test_post_was_edited_is_true_after_a_real_edit(self):
         post = a_post(created_at=NOW, edited_at=NOW + timedelta(minutes=5))
         assert post.was_edited
+
+    def test_a_short_post_edited_a_minute_later_shows_as_edited(self):
+        """Notion truncates both timestamps to the minute, so the only gaps
+        that exist are 0, 60, 120... A flat 60-second threshold is `> 60`, so
+        it hid every edit made in the minute after posting. A short post has no
+        second write to protect against."""
+        post = a_post(created_at=NOW, edited_at=NOW + timedelta(seconds=60))
+        assert post.was_edited
+
+    def test_a_long_post_edited_two_minutes_later_still_shows_as_edited(self):
+        post = a_post(
+            has_full_body=True, created_at=NOW, edited_at=NOW + timedelta(seconds=120)
+        )
+        assert post.was_edited
+
+    def test_an_edit_stamped_before_the_creation_is_not_an_edit(self):
+        """Clock skew, or a page duplicated inside Notion. Incoherent
+        timestamps are not evidence that a member changed anything."""
+        post = a_post(created_at=NOW, edited_at=NOW - timedelta(minutes=5))
+        assert not post.was_edited
+
+    def test_an_edit_stamped_before_the_creation_is_not_an_edit_on_a_long_post(self):
+        post = a_post(
+            has_full_body=True, created_at=NOW, edited_at=NOW - timedelta(minutes=5)
+        )
+        assert not post.was_edited
 
     def test_post_was_edited_is_false_when_never_saved(self):
         assert not a_post(created_at=None, edited_at=None).was_edited
@@ -95,3 +182,13 @@ class TestPost:
 
     def test_post_allows_a_preview_at_exactly_the_cap(self):
         assert len(a_post(body_preview="x" * 1900).body_preview) == 1900
+
+    def test_a_preview_is_measured_in_utf16_units_not_code_points(self):
+        """Notion counts UTF-16. 951 emoji is 1902 units — over the cap at half
+        the character count, and the write fails as a 502."""
+        with pytest.raises(ValueError, match="1900"):
+            a_post(body_preview="\U0001F600" * 951)
+
+    def test_a_preview_of_emoji_at_exactly_the_cap_is_accepted(self):
+        preview = "\U0001F600" * 950
+        assert a_post(body_preview=preview).body_preview == preview

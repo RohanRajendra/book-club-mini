@@ -44,9 +44,28 @@ class _Identifier:
         return self.value
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, eq=False)
 class MemberName(_Identifier):
-    pass
+    """A member, compared without regard to case.
+
+    Notion's Member column is a free-text select typed by hand, so a roster of
+    `Ada` and a Notion value of `ada` are one person who has been entered
+    twice. Treating them as two has a concrete cost: the spoiler rule asks
+    whether the author is the viewer, a string comparison says no, and your own
+    posts are blurred back at you.
+
+    `value` keeps whatever spelling it was given, so display is unaffected —
+    only comparison folds. `eq=False` keeps the dataclass from generating the
+    exact-match `__eq__` that would shadow this.
+    """
+
+    def __eq__(self, other: object) -> bool:
+        if type(other) is not type(self):
+            return NotImplemented
+        return self.value.casefold() == other.value.casefold()
+
+    def __hash__(self) -> int:
+        return hash((type(self), self.value.casefold()))
 
 
 @dataclass(frozen=True, slots=True)

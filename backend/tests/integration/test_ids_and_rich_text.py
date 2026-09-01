@@ -8,6 +8,7 @@ from app.adapters.notion.http import BASE_URL, NotionHttpClient
 from app.adapters.notion.ids import DataSourceResolver
 from app.adapters.notion.rich_text import (
     CHUNK_SIZE,
+    MAX_CHUNKS,
     MAX_CONTENT,
     checkbox,
     from_rich_text,
@@ -17,6 +18,8 @@ from app.adapters.notion.rich_text import (
     select_name,
     to_rich_text,
 )
+from app.domain.services import MAX_BODY
+from app.domain.text import utf16_length
 
 
 @pytest.fixture
@@ -102,6 +105,44 @@ class TestRichText:
 
     def test_content_at_exactly_the_ceiling_is_accepted(self):
         assert len(to_rich_text("x" * MAX_CONTENT)) == 100
+
+    def test_chunks_are_sized_in_utf16_units_not_code_points(self):
+        """Notion counts UTF-16, so 2000 emoji in one object is 4000 units and
+        the write is rejected. Verified live: it answers "content.length should
+        be <= 2000, instead was 2002"."""
+        chunks = to_rich_text("\U0001F600" * (CHUNK_SIZE // 2 + 1))
+        assert len(chunks) == 2
+        for chunk in chunks:
+            assert utf16_length(chunk["text"]["content"]) <= CHUNK_SIZE
+
+    def test_a_chunk_boundary_never_splits_a_surrogate_pair(self):
+        """An odd unit budget must drop the astral character whole. Half a pair
+        is text no store accepts and no reader renders."""
+        for chunk in to_rich_text("a" + "\U0001F600" * 2000):
+            chunk["text"]["content"].encode("utf-8")
+
+    def test_emoji_chunk_boundaries_lose_no_characters(self):
+        content = "a" + "\U0001F600" * (CHUNK_SIZE * 2)
+        rebuilt = "".join(chunk["text"]["content"] for chunk in to_rich_text(content))
+        assert rebuilt == content
+
+    def test_the_ceiling_counts_units_too(self):
+        with pytest.raises(ValueError):
+            to_rich_text("\U0001F600" * (MAX_CONTENT // 2 + 1))
+
+    def test_the_ceiling_never_needs_more_objects_than_notion_allows(self):
+        """The adversarial shape: every object closes one unit short because
+        the next character is astral. At a ceiling of 100 x 2000 this content
+        is legal and still needs 101 objects."""
+        content = ("\U0001F600" * 999 + "a") * 100
+        assert utf16_length(content) <= MAX_CONTENT
+        assert len(to_rich_text(content)) <= MAX_CHUNKS
+
+    def test_the_ceiling_matches_the_body_limit_the_domain_enforces(self):
+        """Two constants, two layers, one number. The domain cannot import the
+        adapter, so nothing but this test keeps them equal — and a body that
+        passes MAX_BODY and fails here is a 502 at the last moment."""
+        assert MAX_BODY == MAX_CONTENT
 
     def test_from_rich_text_round_trips_to_rich_text(self):
         """Chunking that drops a character at a boundary is invisible until

@@ -116,9 +116,9 @@ class NotionUnitOfWork(UnitOfWork):
 
     async def __aenter__(self) -> "NotionUnitOfWork":
         self._compensations.clear()
-        return self
+        return await super().__aenter__()
 
-    async def commit(self) -> None:
+    async def _commit(self) -> None:
         self._compensations.clear()
         self._fire_on_commit()
 

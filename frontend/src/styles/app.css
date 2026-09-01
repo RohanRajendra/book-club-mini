@@ -1,100 +1,320 @@
-.app {
-  max-width: 720px;
+/* --- shell ---------------------------------------------------------------- */
+
+.shell {
+  min-height: 100vh;
+}
+
+/*
+ * Three columns: the book and the filter on the left, the feed in the middle,
+ * the spine on the right. The feed keeps its measure — a column of prose wider
+ * than about 70 characters is harder to read, not easier — and the space that
+ * measure leaves over is where the standing context lives, in reach without
+ * scrolling and without pushing the first post below the fold.
+ */
+.columns {
+  display: grid;
+  grid-template-areas: 'left feed right';
+  grid-template-columns: var(--rail) minmax(0, 1fr) var(--rail-wide);
+  gap: calc(var(--step) * 7);
+  max-width: 1400px;
   margin: 0 auto;
-  padding: calc(var(--step) * 6) calc(var(--step) * 4) calc(var(--step) * 20);
+  padding: calc(var(--step) * 6) calc(var(--step) * 6) calc(var(--step) * 20);
+  align-items: start;
 }
 
-/* --- book bar ------------------------------------------------------------ */
+.rail--left {
+  grid-area: left;
+}
 
-.bookbar {
+.rail--right {
+  grid-area: right;
+}
+
+.column {
+  grid-area: feed;
+  width: 100%;
+  max-width: var(--feed);
+  margin: 0 auto;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: calc(var(--step) * 4);
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: calc(var(--step) * 3);
 }
 
-.bookbar__title {
-  font-size: 1.75rem;
-  line-height: 1.2;
-  margin: 0;
+.rail {
+  position: sticky;
+  top: calc(var(--topbar) + var(--step) * 4);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--step) * 3);
 }
 
-.bookbar__author {
-  margin: calc(var(--step) * 0.5) 0 0;
-  font-size: 0.9375rem;
+/* --- top bar -------------------------------------------------------------- */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: var(--topbar);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--step) * 3);
+  padding: 0 calc(var(--step) * 6);
+  background: var(--field);
+  border-bottom: 1px solid var(--rule);
 }
 
-.bookbar__right {
+.topbar__mark {
+  font-size: 1.0625rem;
+}
+
+.topbar__right {
   display: flex;
   align-items: center;
   gap: calc(var(--step) * 2);
   margin-left: auto;
 }
 
-.bookbar__controls {
-  display: flex;
+.topbar__me {
+  display: inline-flex;
   align-items: center;
-  gap: var(--step);
-  margin-top: calc(var(--step) * 2);
-  flex-wrap: wrap;
+  gap: calc(var(--step) * 1.5);
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.topbar__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.iconbutton {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--muted);
+  border-radius: var(--radius);
+}
+
+.iconbutton:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.spinning {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .viewas {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: var(--step);
   font-size: 0.8125rem;
 }
 
-/* --- spine --------------------------------------------------------------- */
-
-.spine {
-  margin: calc(var(--step) * 8) 0 calc(var(--step) * 6);
+.viewas__label {
+  font-size: 0.8125rem;
 }
 
+.viewas__select {
+  padding: calc(var(--step) * 0.75) var(--step);
+  font-size: 0.8125rem;
+}
+
+/* Borrowing the other member's eyes is a state worth noticing. */
+.viewas__select--other {
+  border-color: var(--ink);
+}
+
+/* --- panels --------------------------------------------------------------- */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+}
+
+.panel__head {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+/* The whole heading strip is the control, not a chevron the size of a stop. */
+.panel__toggle {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--step) * 1.5);
+  width: 100%;
+  padding: calc(var(--step) * 2) calc(var(--step) * 3);
+  border-radius: var(--radius);
+  color: var(--muted);
+}
+
+.panel__title {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.panel__badge {
+  margin-left: auto;
+  font-size: 0.75rem;
+}
+
+.chevron {
+  flex: none;
+  transition: transform var(--motion) ease-out;
+}
+
+.panel--closed .panel__chevron,
+.panel--closed .chevron {
+  transform: rotate(-90deg);
+}
+
+.panel__body {
+  padding: 0 calc(var(--step) * 3) calc(var(--step) * 3);
+}
+
+/* --- book panel ----------------------------------------------------------- */
+
+.bookpanel {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--step) * 2);
+}
+
+.bookpanel__title {
+  margin: 0;
+  font-size: 1.375rem;
+  line-height: 1.2;
+}
+
+.bookpanel__author {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.bookpanel__meta {
+  max-width: 22rem;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--step) * 0.5);
+  margin: calc(var(--step) * 0.5) 0 0;
+}
+
+.bookpanel__meta > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--step);
+}
+
+.bookpanel__meta dt,
+.bookpanel__meta dd {
+  margin: 0;
+}
+
+.bookpanel__meta dd {
+  color: var(--ink);
+  text-align: right;
+}
+
+.bookpanel__select {
+  width: 100%;
+}
+
+.bookpanel__actions {
+  display: flex;
+  gap: var(--step);
+}
+
+.bookpanel__actions button {
+  flex: 1;
+  border-color: var(--rule);
+  font-size: 0.875rem;
+}
+
+/* --- spine ---------------------------------------------------------------- */
+
+.spine {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--step) * 3);
+}
+
+/*
+ * Vertical in the rail — chapter one at the top, the end of the book at the
+ * bottom. A tick's distance along the track is written as `--pos` so the
+ * stacked layout below can reuse the same markup lying down.
+ */
+/*
+ * The track is a 32px-wide box with the line drawn down its middle, not a 2px
+ * element with ticks hanging off it. Absolutely positioned ticks that overflow
+ * their parent make the sticky rail scrollable sideways.
+ */
 .spine__track {
   position: relative;
-  height: 2px;
+  width: 44px;
+  height: 200px;
+  margin: calc(var(--step) * 5) auto;
+}
+
+.spine__track::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-50%);
   background: var(--rule);
-  margin: calc(var(--step) * 12) 0 calc(var(--step) * 10);
 }
 
 .spine__track--estimated::after {
   content: '';
   position: absolute;
-  right: -1px;
-  top: -1px;
-  width: 18%;
-  height: 4px;
-  background: linear-gradient(to right, var(--rule) 0 2px, transparent 2px 6px)
-    repeat-x;
-  background-size: 6px 2px;
-  background-position: 0 1px;
+  left: 50%;
+  bottom: -2px;
+  width: 2px;
+  height: 18%;
+  transform: translateX(-50%);
+  background: linear-gradient(to bottom, var(--field) 0 2px, transparent 2px 6px);
+  background-size: 2px 6px;
+  background-repeat: repeat-y;
 }
 
-/* Everything to the right of your own tick carries the blur wash, so the
-   spine explains the blur rule without copy. */
+/* Everything past your own tick carries the blur wash, so the spine explains
+   the blur rule without copy. */
 .spine__ahead {
   position: absolute;
-  top: -14px;
-  bottom: -14px;
-  background: var(--rule);
-  opacity: 0.38;
+  left: 50%;
+  width: 14px;
+  transform: translateX(-50%);
+  top: var(--pos);
+  bottom: 0;
+  background: var(--wash);
+  border-radius: var(--radius);
   pointer-events: none;
 }
 
 .spine__tick {
   position: absolute;
-  top: 50%;
+  top: var(--pos);
+  left: 50%;
   transform: translate(-50%, -50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: calc(var(--step) * 0.5);
-  background: none;
+  padding: calc(var(--step) * 1.5);
   border: 0;
-  padding: 0;
+  background: none;
   cursor: default;
 }
 
@@ -102,65 +322,169 @@
   cursor: pointer;
 }
 
+.spine__tick:hover:not(:disabled) {
+  background: none;
+}
+
+.spine__tick:disabled {
+  opacity: 1;
+}
+
 .spine__mark {
-  width: 3px;
-  height: 22px;
+  display: block;
+  width: 18px;
+  height: 3px;
   border-radius: 2px;
   background: currentColor;
 }
 
-.spine__label {
-  position: absolute;
-  top: -34px;
-  white-space: nowrap;
-  text-align: center;
+.spine__tick--own .spine__mark {
+  width: 26px;
+  height: 4px;
 }
 
-.spine__when {
+.spine__cap {
   position: absolute;
-  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
   white-space: nowrap;
-  font-size: 0.75rem;
 }
 
-.spine__end {
-  position: absolute;
-  right: 0;
-  top: 18px;
+.spine__cap--start {
+  top: calc(var(--step) * -5);
+}
+
+.spine__cap--end {
+  bottom: calc(var(--step) * -5);
+}
+
+.spine__legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--step) * 1.5);
+}
+
+.spine__reader {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: 0 calc(var(--step) * 1.5);
+  font-size: 0.875rem;
+}
+
+.spine__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  align-self: center;
+}
+
+.spine__who {
+  font-weight: 600;
+}
+
+.spine__where {
+  grid-column: 2;
+}
+
+.spine__update {
+  border-color: var(--rule);
+  font-size: 0.875rem;
 }
 
 .spine__empty {
   text-align: center;
-  padding: calc(var(--step) * 6) 0;
+  padding: calc(var(--step) * 4) 0;
+  font-size: 0.875rem;
 }
 
-/* --- quick progress ------------------------------------------------------ */
+/* --- quick progress ------------------------------------------------------- */
 
 .quick {
   display: flex;
   align-items: center;
   gap: var(--step);
-  padding: calc(var(--step) * 3);
-  background: var(--surface);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  margin-bottom: calc(var(--step) * 4);
+  padding-top: calc(var(--step) * 3);
+  margin-top: calc(var(--step) * 3);
+  border-top: 1px solid var(--rule);
   flex-wrap: wrap;
 }
 
 .quick input {
-  width: 6.5rem;
+  width: 5rem;
+  flex: 1 1 5rem;
+  min-width: 0;
 }
 
-/* --- composer ------------------------------------------------------------ */
+/* --- chips ---------------------------------------------------------------- */
 
-.composer {
+.chips {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--step) * 0.5);
+}
+
+.chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--step) * 2);
+  border-color: transparent;
+  font-size: 0.875rem;
+  padding: calc(var(--step) * 1.25) calc(var(--step) * 2);
+  text-align: left;
+}
+
+.chip[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--on-ink);
+  border-color: var(--ink);
+}
+
+.chip[aria-pressed='true']:hover {
+  background: var(--ink);
+}
+
+.chip__count {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+/* --- composer ------------------------------------------------------------- */
+
+.newpost {
+  width: 100%;
+  text-align: left;
+  color: var(--muted);
+  background: var(--surface);
+  border-color: var(--rule);
+  padding: calc(var(--step) * 3);
+}
+
+.newpost:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--muted);
+}
+
+.composer,
+.editor {
   background: var(--surface);
   border: 1px solid var(--rule);
   border-radius: var(--radius);
   padding: calc(var(--step) * 4);
-  margin-bottom: calc(var(--step) * 4);
   animation: expand var(--motion) ease-out;
+}
+
+/* Inside a card the editor is the card, so it drops its own frame. */
+.card--editing .editor {
+  background: none;
+  border: 0;
+  padding: calc(var(--step) * 2.5) 0 0;
 }
 
 @keyframes expand {
@@ -182,7 +506,7 @@
 
 .composer__type[aria-pressed='true'] {
   background: var(--ink);
-  color: var(--surface);
+  color: var(--on-ink);
   border-color: var(--ink);
 }
 
@@ -193,13 +517,34 @@
   flex-wrap: wrap;
 }
 
-.composer__row input {
-  width: 7rem;
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--step) * 0.5);
 }
 
-.composer textarea {
+.field__label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.composer__row .field {
+  width: 8.5rem;
+}
+
+.composer__row input {
+  width: 100%;
+}
+
+.composer textarea,
+.editor textarea {
   width: 100%;
   min-height: 7rem;
+}
+
+.editor--reply textarea {
+  min-height: 4.5rem;
 }
 
 .composer__footer {
@@ -216,7 +561,7 @@
 
 .primary {
   background: var(--ink);
-  color: var(--surface);
+  color: var(--on-ink);
   border-color: var(--ink);
 }
 
@@ -229,35 +574,21 @@
   color: var(--reader-b);
 }
 
-/* --- chips --------------------------------------------------------------- */
-
-.chips {
-  display: flex;
-  gap: var(--step);
-  margin: calc(var(--step) * 5) 0 calc(var(--step) * 3);
-  flex-wrap: wrap;
+.linkbutton {
+  padding: 0;
+  border: 0;
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  color: var(--muted);
 }
 
-.chip {
-  border-color: var(--rule);
-  font-size: 0.875rem;
-  padding: var(--step) calc(var(--step) * 2.5);
+.linkbutton:hover:not(:disabled) {
+  background: none;
+  color: var(--ink);
 }
 
-.chip[aria-pressed='true'] {
-  background: var(--ink);
-  color: var(--surface);
-  border-color: var(--ink);
-}
-
-.chip__count {
-  font-family: var(--mono);
-  font-size: 0.75rem;
-  opacity: 0.7;
-  margin-left: calc(var(--step) * 1.5);
-}
-
-/* --- feed ---------------------------------------------------------------- */
+/* --- feed ----------------------------------------------------------------- */
 
 .feed {
   display: flex;
@@ -270,6 +601,10 @@
   border: 1px solid var(--rule);
   border-radius: var(--radius);
   padding: calc(var(--step) * 4);
+}
+
+.card--editing {
+  border-color: var(--muted);
 }
 
 .card__head {
@@ -285,13 +620,12 @@
   border-radius: 50%;
   display: grid;
   place-items: center;
-  color: var(--surface);
   background: currentColor;
   flex: none;
 }
 
 .initial span {
-  color: var(--surface);
+  color: var(--on-ink);
   font-size: 0.75rem;
   font-weight: 600;
 }
@@ -300,10 +634,51 @@
   font-weight: 600;
 }
 
+.card__text {
+  margin-top: calc(var(--step) * 2.5);
+}
+
 .card__body {
-  margin: calc(var(--step) * 2.5) 0 0;
+  margin: 0;
+  /* Set explicitly: an ancestor may colour a rule through `color`. */
+  color: var(--ink);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/*
+ * A preview runs to the storage layer's field limit — around thirty lines,
+ * which is one post filling the screen. Clamped, the feed stays a feed.
+ */
+.card__body--clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 8;
+  line-clamp: 8;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+
+.card__text .linkbutton {
+  margin-top: var(--step);
+}
+
+/* A progress update says everything in its header. */
+.card--marker {
+  padding-top: calc(var(--step) * 2.5);
+  padding-bottom: calc(var(--step) * 2.5);
+}
+
+.card--marker .card__actions {
+  margin-top: var(--step);
+}
+
+.card__type {
+  padding: 0 calc(var(--step) * 1.25);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  opacity: 0.75;
 }
 
 .card__actions {
@@ -322,7 +697,7 @@
   color: var(--ink);
 }
 
-/* --- blur ---------------------------------------------------------------- */
+/* --- blur ----------------------------------------------------------------- */
 
 .blur {
   position: relative;
@@ -333,8 +708,8 @@
   filter: blur(5px);
   user-select: none;
   pointer-events: none;
-  background: var(--rule);
-  opacity: 0.55;
+  background: var(--wash);
+  opacity: 0.8;
   border-radius: var(--radius);
   padding: calc(var(--step) * 2);
   min-height: 3.5rem;
@@ -349,16 +724,53 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--step);
+  gap: calc(var(--step) * 1.5);
   text-align: center;
 }
 
-/* --- replies ------------------------------------------------------------- */
+.blur__label {
+  color: var(--muted);
+}
+
+.blur__reveal {
+  background: var(--surface);
+  border-color: var(--rule);
+  font-size: 0.875rem;
+  padding: calc(var(--step) * 1) calc(var(--step) * 2.5);
+}
+
+.blur__reveal:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: var(--ink);
+}
+
+/* --- replies -------------------------------------------------------------- */
+
+.thread {
+  margin-top: calc(var(--step) * 2);
+}
+
+.thread__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--step);
+  padding: calc(var(--step) * 0.5) var(--step);
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.thread__toggle:hover {
+  color: var(--ink);
+}
+
+.thread__toggle[aria-expanded='false'] .chevron {
+  transform: rotate(-90deg);
+}
 
 .replies {
-  margin: calc(var(--step) * 3) 0 0 calc(var(--step) * 2);
+  margin: calc(var(--step) * 2) 0 0 calc(var(--step) * 2);
   padding-left: calc(var(--step) * 4);
-  border-left: 1px solid currentColor;
+  border-left: 1px solid var(--thread, var(--rule));
   display: flex;
   flex-direction: column;
   gap: calc(var(--step) * 3);
@@ -366,16 +778,58 @@
 
 .reply {
   padding: 0;
+  background: none;
+  border: 0;
 }
 
-/* --- misc ---------------------------------------------------------------- */
+/* --- modal ---------------------------------------------------------------- */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: calc(var(--step) * 4);
+}
+
+.modal__backdrop {
+  position: absolute;
+  inset: 0;
+  /* `place-items: center` on the parent shrink-wraps an absolutely positioned
+     child even with `inset: 0`, which leaves a backdrop of zero size. */
+  place-self: stretch;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--ink);
+  opacity: 0.28;
+  cursor: default;
+}
+
+.modal__backdrop:hover:not(:disabled) {
+  background: var(--ink);
+}
+
+.modal__panel {
+  position: relative;
+  width: min(440px, 100%);
+  box-shadow: var(--shadow);
+}
+
+/* --- misc ----------------------------------------------------------------- */
 
 .notice {
   padding: calc(var(--step) * 3);
   border: 1px solid var(--rule);
   border-radius: var(--radius);
   background: var(--surface);
-  margin-bottom: calc(var(--step) * 3);
+  margin: 0;
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.875rem;
 }
 
 .empty {
@@ -388,7 +842,6 @@
   border: 1px solid var(--rule);
   border-radius: var(--radius);
   padding: calc(var(--step) * 4);
-  margin-bottom: calc(var(--step) * 4);
 }
 
 .dialog__grid {
@@ -408,16 +861,159 @@
   grid-column: 1 / -1;
 }
 
-@media (max-width: 420px) {
-  .app {
-    padding: calc(var(--step) * 4) calc(var(--step) * 3) calc(var(--step) * 16);
+/* --- narrower than three columns ------------------------------------------ */
+
+/*
+ * Two columns rather than three: one rail beside the feed, holding all three
+ * panels. Rails split across the top instead leave a ragged, half-empty band
+ * above the feed, because the two of them are never the same height.
+ */
+@media (max-width: 1200px) {
+  .columns {
+    grid-template-areas:
+      'left feed'
+      'right feed';
+    grid-template-columns: minmax(200px, var(--rail)) minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    gap: calc(var(--step) * 3) calc(var(--step) * 5);
+    padding: calc(var(--step) * 5) calc(var(--step) * 5) calc(var(--step) * 16);
+  }
+
+  .rail {
+    position: static;
+  }
+
+  .column {
+    margin: 0;
+  }
+}
+
+/*
+ * Stacked. The spine lies down with it: chapter one at the left, the end of the
+ * book at the right. Same markup, same `--pos`, read along the other axis.
+ */
+@media (max-width: 760px) {
+  .columns {
+    grid-template-areas:
+      'left'
+      'right'
+      'feed';
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+
+  .column {
+    margin: 0 auto;
+  }
+
+  .topbar {
+    padding: 0 calc(var(--step) * 4);
+  }
+
+  .viewas__label {
+    display: none;
+  }
+
+  .chips {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .chip {
+    border-color: var(--rule);
+  }
+
+  .spine__track {
+    width: auto;
+    height: 26px;
+    margin: calc(var(--step) * 6) calc(var(--step) * 3) calc(var(--step) * 4);
+  }
+
+  .spine__track::before {
+    left: 0;
+    right: 0;
+    top: 50%;
+    bottom: auto;
+    width: auto;
+    height: 2px;
+    transform: translateY(-50%);
+  }
+
+  .spine__track--estimated::after {
+    left: auto;
+    right: 0;
+    bottom: auto;
+    top: 50%;
+    width: 18%;
+    height: 2px;
+    transform: translateY(-50%);
+    background: linear-gradient(to right, var(--field) 0 2px, transparent 2px 6px);
+    background-size: 6px 2px;
+    background-repeat: repeat-x;
+  }
+
+  .spine__tick {
+    top: 50%;
+    left: var(--pos);
+  }
+
+  .spine__mark {
+    width: 3px;
+    height: 18px;
+  }
+
+  .spine__tick--own .spine__mark {
+    width: 4px;
+    height: 26px;
+  }
+
+  .spine__ahead {
+    left: var(--pos);
+    right: 0;
+    width: auto;
+    transform: none;
+    top: 50%;
+    height: 14px;
+    bottom: auto;
+    margin-top: -7px;
+  }
+
+  .spine__cap {
+    top: calc(var(--step) * 4);
+    transform: none;
+  }
+
+  .spine__cap--start {
+    left: 0;
+  }
+
+  .spine__cap--end {
+    left: auto;
+    right: 0;
+    bottom: auto;
+  }
+
+  .spine__legend {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: calc(var(--step) * 2) calc(var(--step) * 5);
+  }
+}
+
+@media (max-width: 460px) {
+  .columns {
+    padding: calc(var(--step) * 4) calc(var(--step) * 3) calc(var(--step) * 14);
   }
 
   .dialog__grid {
     grid-template-columns: 1fr;
   }
 
-  .bookbar__title {
-    font-size: 1.4rem;
+  .topbar__mark {
+    font-size: 0.9375rem;
+  }
+
+  .bookpanel__title {
+    font-size: 1.25rem;
   }
 }

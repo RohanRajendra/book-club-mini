@@ -14,6 +14,8 @@ normally sends, because someone hand-edited the row.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from app.adapters.notion.mappers import BookMapper, PostMapper
 from app.domain.entities import Book, Post
 from app.domain.values import BookId, BookStatus, MemberName, Position, PostId, PostType
@@ -61,9 +63,20 @@ class TestBookFallbacks:
         page = book_page(**{"Total Chapters": {"number": 0}})
         assert BOOKS.to_domain(page).total_chapters is None
 
-    def test_to_properties_omits_none_valued_fields(self):
+    # A Notion update merges, so an omitted property keeps its old value. Every
+    # property is therefore always written, with the shape that means "empty":
+    # `None` for a number, `[]` for rich text.
+    def test_to_properties_writes_every_property_even_when_empty(self):
         properties = BOOKS.to_properties(Book(title="Piranesi"))
-        assert set(properties) == {"Title", "Status"}
+        assert set(properties) == {"Title", "Status", "Author", "Total Chapters"}
+
+    def test_an_absent_author_is_written_as_empty_rich_text(self):
+        properties = BOOKS.to_properties(Book(title="Piranesi", author=None))
+        assert properties["Author"] == {"rich_text": []}
+
+    def test_an_absent_total_chapter_count_is_written_as_a_null_number(self):
+        properties = BOOKS.to_properties(Book(title="Piranesi", total_chapters=None))
+        assert properties["Total Chapters"] == {"number": None}
 
     def test_to_properties_includes_author_and_chapters_when_present(self):
         properties = BOOKS.to_properties(
@@ -71,6 +84,32 @@ class TestBookFallbacks:
         )
         assert properties["Total Chapters"] == {"number": 30}
         assert properties["Author"]["rich_text"][0]["text"]["content"] == "Susanna Clarke"
+
+
+class TestHandEditedBookText:
+    """Notion's text fields are free-form and the docs invite hand-edits.
+
+    A whitespace title reached `Book.__post_init__`, which raises — a `500` on
+    `GET /api/books` and on every feed for that book, from typing a space.
+    """
+
+    def test_a_whitespace_title_falls_back_instead_of_raising(self):
+        page = book_page(Title={"title": [{"plain_text": "   "}]})
+        assert BOOKS.to_domain(page).title == "Untitled"
+
+    def test_a_title_is_stripped(self):
+        page = book_page(Title={"title": [{"plain_text": "  Piranesi  "}]})
+        assert BOOKS.to_domain(page).title == "Piranesi"
+
+    def test_a_whitespace_author_reads_as_no_author(self):
+        """Blank-but-present is not a state a book should have: it renders as
+        an empty author line that looks like a bug."""
+        page = book_page(Author={"rich_text": [{"plain_text": "   "}]})
+        assert BOOKS.to_domain(page).author is None
+
+    def test_an_author_is_stripped(self):
+        page = book_page(Author={"rich_text": [{"plain_text": " Susanna Clarke "}]})
+        assert BOOKS.to_domain(page).author == "Susanna Clarke"
 
 
 class TestPostFallbacks:
@@ -108,10 +147,6 @@ class TestPostFallbacks:
         page = post_page(Chapter={"number": 9}, Page={"number": 0})
         assert POSTS.to_domain(page).position == Position(9)
 
-    def test_a_row_with_no_book_relation_maps_to_an_orphan_book_id(self):
-        page = post_page(Book={"relation": []})
-        assert POSTS.to_domain(page).book_id == BookId("orphan")
-
     def test_a_cleared_member_maps_to_unknown(self):
         page = post_page(Member={"select": None})
         assert POSTS.to_domain(page).member == MemberName("Unknown")
@@ -122,6 +157,95 @@ class TestPostFallbacks:
         page["last_edited_time"] = None
         post = POSTS.to_domain(page)
         assert post.created_at is None and post.edited_at is None
+
+
+class TestAPostWithNoBookIsNotInvented:
+    """A post whose Book relation is empty cannot be represented.
+
+    It used to be given the fabricated id `BookId("orphan")` — a value that
+    belongs to no book, breaks the guarantee that an identifier never silently
+    stands in for another, and leaves the row invisible either way, since the
+    feed queries by relation and this one has none.
+    """
+
+    def test_a_post_with_no_book_relation_maps_to_nothing(self):
+        page = post_page()
+        page["properties"]["Book"] = {"relation": []}
+        assert POSTS.to_domain(page) is None
+
+    def test_a_post_with_a_missing_book_property_maps_to_nothing(self):
+        page = post_page()
+        del page["properties"]["Book"]
+        assert POSTS.to_domain(page) is None
+
+    def test_a_post_with_a_book_still_maps(self):
+        assert POSTS.to_domain(post_page()).book_id == BookId("book-1")
+
+    def test_the_fabricated_orphan_id_is_gone(self):
+        """Named because it was a real value in a real database, and anything
+        still reading it would now be reading a book that never existed."""
+        page = post_page()
+        page["properties"]["Book"] = {"relation": []}
+        assert POSTS.to_domain(page) != Post(
+            book_id=BookId("orphan"),
+            member=MemberName("Ada"),
+            type=PostType.THOUGHT,
+        )
+
+
+class TestTimestampFallbacks:
+    """One bad timestamp is a 500 for the whole feed, not one odd row.
+
+    Sorting compares these, and `sorted` raises on the first pair it cannot
+    compare — so an unparseable value, or a naive one among aware ones, takes
+    the book down.
+    """
+
+    def test_a_timestamp_without_an_offset_is_read_as_utc(self):
+        page = post_page()
+        page["created_time"] = "2026-03-01T12:00:00.000"
+        created = POSTS.to_domain(page).created_at
+        assert created.tzinfo is not None
+        assert created == datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
+
+    def test_an_unparseable_timestamp_becomes_none_rather_than_raising(self):
+        page = post_page()
+        page["created_time"] = "last tuesday"
+        assert POSTS.to_domain(page).created_at is None
+
+    def test_a_non_string_timestamp_becomes_none_rather_than_raising(self):
+        page = post_page()
+        page["created_time"] = 1772366400
+        assert POSTS.to_domain(page).created_at is None
+
+    def test_a_normal_timestamp_still_parses(self):
+        assert POSTS.to_domain(post_page()).created_at == datetime(
+            2026, 3, 1, 12, 0, tzinfo=timezone.utc
+        )
+
+
+class TestPostDeletedFlag:
+    """Notion renamed the trashed flag in API version 2025-09-03.
+
+    `_set_trashed` already falls back to the old spelling when writing, so a
+    workspace on either version can be read back correctly. Only the write side
+    was covered."""
+
+    def test_a_page_in_the_trash_is_deleted(self):
+        page = post_page()
+        page["in_trash"] = True
+        assert POSTS.to_domain(page).is_deleted is True
+
+    def test_the_pre_2025_09_03_archived_spelling_is_honoured(self):
+        page = post_page()
+        page.pop("in_trash", None)
+        page["archived"] = True
+        assert POSTS.to_domain(page).is_deleted is True
+
+    def test_a_page_that_says_nothing_about_the_trash_is_not_deleted(self):
+        page = post_page()
+        page.pop("in_trash", None)
+        assert POSTS.to_domain(page).is_deleted is False
 
 
 class TestPostProperties:
@@ -143,16 +267,26 @@ class TestPostProperties:
         assert properties["Chapter"] == {"number": 9}
         assert properties["Page"] == {"number": 204}
 
-    def test_a_position_without_a_page_omits_the_page_property(self):
+    # Same reason as BookMapper above: omitting a property is how a page
+    # number becomes impossible to clear.
+    def test_a_position_without_a_page_writes_a_null_page(self):
         properties = POSTS.to_properties(self.base(position=Position(9)))
-        assert "Page" not in properties
+        assert properties["Page"] == {"number": None}
 
-    def test_no_position_omits_both_properties(self):
+    def test_no_position_writes_both_as_null(self):
         properties = POSTS.to_properties(self.base(position=None))
-        assert "Chapter" not in properties and "Page" not in properties
+        assert properties["Chapter"] == {"number": None}
+        assert properties["Page"] == {"number": None}
 
-    def test_a_top_level_post_omits_parent_post_id(self):
-        assert "Parent Post ID" not in POSTS.to_properties(self.base())
+    def test_a_top_level_post_writes_an_empty_parent_post_id(self):
+        properties = POSTS.to_properties(self.base())
+        assert properties["Parent Post ID"] == {"rich_text": []}
+
+    def test_a_reply_writes_its_parent_post_id(self):
+        properties = POSTS.to_properties(
+            self.base(parent_post_id=PostId("p9"), type=PostType.REPLY)
+        )
+        assert properties["Parent Post ID"]["rich_text"][0]["text"]["content"] == "p9"
 
     def test_the_generated_name_includes_the_chapter(self):
         """For the owner's eyes inside Notion. Never parsed back."""
