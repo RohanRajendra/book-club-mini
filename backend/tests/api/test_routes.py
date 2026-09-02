@@ -9,7 +9,7 @@ import pytest
 
 from app.domain.values import Position, PostType
 from app.composition import Container
-from tests.api.conftest import BOOK, sign_in_as
+from tests.api.conftest import BOOK, PASSPHRASE, sign_in_as
 from tests.builders import ADA, GRACE, make_post
 
 
@@ -20,6 +20,99 @@ async def test_health_says_only_that_the_app_is_up(client):
     response = await client.get("/api/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+class TestSigningIn:
+    """One shared secret keeps strangers out; the name is a choice.
+
+    Every refusal says the same sentence. Telling a caller that the passphrase
+    was right but the name was wrong hands them half the answer.
+    """
+
+    async def test_the_right_passphrase_returns_a_session(self, shared_client):
+        response = await shared_client.post(
+            "/api/session", json={"passphrase": PASSPHRASE, "member": "Grace"}
+        )
+        assert response.status_code == 200
+        assert response.json() == {
+            "member": "Grace",
+            "members": ["Ada", "Grace"],
+            "reader_index": 1,
+            "signed_in": True,
+        }
+
+    async def test_the_cookie_it_sets_actually_works(self, shared_client):
+        await shared_client.post(
+            "/api/session", json={"passphrase": PASSPHRASE, "member": "Grace"}
+        )
+        assert (await shared_client.get("/api/me")).json()["member"] == "Grace"
+
+    async def test_the_cookie_is_not_readable_by_scripts(self, shared_client):
+        """The app never reads it from JavaScript, so a stolen XSS payload
+        should not be able to either."""
+        response = await shared_client.post(
+            "/api/session", json={"passphrase": PASSPHRASE, "member": "Ada"}
+        )
+        cookie = response.headers["set-cookie"].lower()
+        assert "httponly" in cookie
+        assert "samesite=lax" in cookie
+        assert "secure" in cookie
+
+    async def test_the_wrong_passphrase_is_refused(self, shared_client):
+        response = await shared_client.post(
+            "/api/session", json={"passphrase": "guess", "member": "Ada"}
+        )
+        assert response.status_code == 401
+        assert (await shared_client.get("/api/me")).status_code == 401
+
+    async def test_a_name_outside_the_roster_is_refused(self, shared_client):
+        response = await shared_client.post(
+            "/api/session", json={"passphrase": PASSPHRASE, "member": "Mallory"}
+        )
+        assert response.status_code == 401
+
+    async def test_both_refusals_say_the_same_thing(self, shared_client):
+        """Different wording would say which half was wrong."""
+        wrong_secret = await shared_client.post(
+            "/api/session", json={"passphrase": "guess", "member": "Ada"}
+        )
+        wrong_name = await shared_client.post(
+            "/api/session", json={"passphrase": PASSPHRASE, "member": "Mallory"}
+        )
+        assert wrong_secret.json() == wrong_name.json()
+
+    async def test_a_blank_name_is_rejected_by_the_schema(self, shared_client):
+        response = await shared_client.post(
+            "/api/session", json={"passphrase": PASSPHRASE, "member": "   "}
+        )
+        assert response.status_code == 422
+
+    async def test_the_name_may_be_spelled_in_any_case(self, shared_client):
+        response = await shared_client.post(
+            "/api/session", json={"passphrase": PASSPHRASE, "member": "grace"}
+        )
+        assert response.status_code == 200
+
+    async def test_signing_out_revokes_the_session(self, shared_client):
+        await shared_client.post(
+            "/api/session", json={"passphrase": PASSPHRASE, "member": "Ada"}
+        )
+        assert (await shared_client.delete("/api/session")).status_code == 204
+        assert (await shared_client.get("/api/me")).status_code == 401
+
+    async def test_signing_out_when_not_signed_in_is_not_an_error(
+        self, shared_client
+    ):
+        """Reporting one would tell a caller whether their cookie was valid."""
+        assert (await shared_client.delete("/api/session")).status_code == 204
+
+    async def test_an_installation_with_no_secrets_has_no_sign_in(self, client):
+        """`open` mode with nothing configured. The route exists in the code
+        but there is nothing for it to verify against."""
+        response = await client.post(
+            "/api/session", json={"passphrase": "anything", "member": "Ada"}
+        )
+        assert response.status_code == 404
 
 
 class TestIdentityComesFromTheSession:
@@ -55,6 +148,7 @@ class TestIdentityComesFromTheSession:
             "member": "Grace",
             "members": ["Ada", "Grace"],
             "reader_index": 1,
+            "signed_in": True,
         }
 
     async def test_the_colour_follows_the_session_not_the_server(self, shared_client):
@@ -82,7 +176,7 @@ class TestIdentityComesFromTheSession:
         app.state.container = shared_container
         transport = ASGITransport(app=app, raise_app_exceptions=False)
 
-        async with AsyncClient(transport=transport, base_url="http://test") as other:
+        async with AsyncClient(transport=transport, base_url="https://test") as other:
             sign_in_as(shared_client, "Ada")
             sign_in_as(other, "Grace")
 
@@ -145,7 +239,7 @@ class TestIdentityComesFromTheSession:
         app.state.container = Container(leftover, uow_factory=uow_factory)
         transport = ASGITransport(app=app, raise_app_exceptions=False)
 
-        async with AsyncClient(transport=transport, base_url="http://test") as http:
+        async with AsyncClient(transport=transport, base_url="https://test") as http:
             assert (await http.get("/api/me")).status_code == 401
             posted = await http.post(
                 "/api/posts",
@@ -210,11 +304,14 @@ class TestOpenModeIsUnchanged:
 
 
 async def test_me_returns_the_configured_member_and_roster(client):
+    """`signed_in` is false: identity came from configuration, and there is no
+    session for the browser to end."""
     response = await client.get("/api/me")
     assert response.json() == {
         "member": "Ada",
         "members": ["Ada", "Grace"],
         "reader_index": 0,
+        "signed_in": False,
     }
 
 

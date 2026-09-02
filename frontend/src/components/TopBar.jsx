@@ -17,6 +17,7 @@ export function TopBar({
   refreshing,
   theme,
   onToggleTheme,
+  onSignOut,
 }) {
   const viewingAsOther = viewer && viewer !== member
 
@@ -62,6 +63,20 @@ export function TopBar({
         </button>
 
         <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+
+        {/* Absent on an installation with no sign-in, where there is no
+            session to end. */}
+        {onSignOut ? (
+          <button
+            type="button"
+            className="iconbutton"
+            onClick={onSignOut}
+            title="Sign out"
+          >
+            <SignOut />
+            <span className="sr-only">Sign out</span>
+          </button>
+        ) : null}
       </div>
     </header>
   )
@@ -84,6 +99,27 @@ function Refresh({ spinning }) {
     >
       <path d="M13.6 6.8A5.8 5.8 0 1 0 13 10.5" />
       <path d="M13.9 2.8v4h-4" />
+    </svg>
+  )
+}
+
+
+function SignOut() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M6 14H3.5A1.5 1.5 0 0 1 2 12.5v-9A1.5 1.5 0 0 1 3.5 2H6" />
+      <path d="M10.5 11 14 8l-3.5-3" />
+      <path d="M14 8H6" />
     </svg>
   )
 }

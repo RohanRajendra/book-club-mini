@@ -50,6 +50,8 @@ const send = (method) => (path, payload) =>
 
 export const api = {
   me: () => request('/me'),
+  signIn: (payload) => send('POST')('/session', payload),
+  signOut: () => request('/session', { method: 'DELETE' }),
   books: () => request('/books'),
   addBook: send('POST').bind(null, '/books'),
   updateBook: (id, payload) => send('PATCH')(`/books/${id}`, payload),

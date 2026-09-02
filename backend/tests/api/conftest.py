@@ -100,11 +100,17 @@ def shared_container(shared_settings, uow_factory) -> Container:
 
 @pytest.fixture
 async def shared_client(shared_container, seeded):
-    """A client with no session. Everything it asks for should be refused."""
+    """A client with no session. Everything it asks for should be refused.
+
+    `https`, because the session cookie is issued `Secure` under `passphrase`
+    mode and a client on plain HTTP would silently decline to send it back —
+    which is the flag working, and would make every test here pass for the
+    wrong reason.
+    """
     app = create_app()
     app.state.container = shared_container
     transport = ASGITransport(app=app, raise_app_exceptions=False)
-    async with AsyncClient(transport=transport, base_url="http://test") as http:
+    async with AsyncClient(transport=transport, base_url="https://test") as http:
         yield http
 
 

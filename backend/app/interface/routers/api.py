@@ -6,6 +6,8 @@ Anything else is misplaced.
 
 from __future__ import annotations
 
+import asyncio
+
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
@@ -19,6 +21,7 @@ from app.application.use_cases.get_post_body import PostBodyQuery
 from app.composition import Container
 from app.config import AuthMode
 from app.interface import session
+from app.interface.passphrase import verify_passphrase
 from app.domain.values import BookId, MemberName, PostId, PostType
 from app.interface.errors import raise_for
 from app.interface.schemas import (
@@ -31,6 +34,7 @@ from app.interface.schemas import (
     FeedResponse,
     HealthResponse,
     MeResponse,
+    SessionRequest,
     PostResponse,
 )
 
@@ -94,6 +98,9 @@ def viewer_of(
         if signed is not None:
             member = MemberName(signed)
             if member in container.roster:
+                # Recorded so `/api/me` can tell the browser whether there is
+                # a session to sign out of.
+                request.state.from_session = True
                 return member
 
     if settings.auth_mode is AuthMode.OPEN and container.member is not None:
@@ -121,9 +128,84 @@ async def health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
+#: A failed attempt costs this much wall time on top of the hash. Modest on
+#: purpose: PBKDF2 already makes each attempt cost ~90ms of CPU, and no delay
+#: this side of unusable defends a weak passphrase. What defends it is entropy,
+#: which is why `scripts/make_secrets.py` generates one rather than asking for
+#: it. A process-local attempt counter would be theatre on a platform that
+#: starts a fresh process whenever it likes.
+FAILED_SIGN_IN_DELAY = 0.5
+
+
+def _sign_in_configured(settings) -> bool:
+    """Whether this installation can verify a passphrase at all.
+
+    Keyed on the secrets rather than on `auth_mode`, so the flow can be
+    exercised locally by setting them without switching the whole installation
+    over to requiring a login.
+    """
+    return bool(settings.session_secret and settings.site_passphrase_hash)
+
+
+@router.post("/session", response_model=MeResponse)
+async def sign_in(
+    payload: SessionRequest,
+    response: Response,
+    container: Container = Depends(container_of),
+) -> MeResponse:
+    """Exchange the shared passphrase and a name for a session cookie."""
+    settings = container.settings
+    if not _sign_in_configured(settings):
+        raise HTTPException(
+            status_code=404, detail="This installation has no sign-in."
+        )
+
+    member = MemberName(payload.member)
+    if member not in container.roster:
+        # Refused for the same reason a wrong passphrase is, and with the same
+        # sentence: which half was wrong is not the caller's business.
+        await asyncio.sleep(FAILED_SIGN_IN_DELAY)
+        raise HTTPException(status_code=401, detail="That didn't work.")
+
+    if not verify_passphrase(payload.passphrase, settings.site_passphrase_hash):
+        await asyncio.sleep(FAILED_SIGN_IN_DELAY)
+        raise HTTPException(status_code=401, detail="That didn't work.")
+
+    response.set_cookie(
+        session.COOKIE_NAME,
+        session.issue(member.value, settings.session_secret),
+        max_age=session.MAX_AGE_SECONDS,
+        httponly=True,
+        # Lax rather than Strict: the cookie must survive following a link to
+        # the app from anywhere, and the app is same-origin so nothing needs it
+        # cross-site. It still keeps the cookie off a cross-site POST.
+        samesite="lax",
+        # An `open` installation is by definition local, and a Secure cookie is
+        # dropped over plain HTTP — which would make the flow untestable there.
+        secure=settings.auth_mode is AuthMode.PASSPHRASE,
+        path="/",
+    )
+    return MeResponse(
+        member=member.value,
+        members=settings.members,
+        reader_index=container.reader_index(member),
+        signed_in=True,
+    )
+
+
+@router.delete("/session", status_code=204)
+async def sign_out(response: Response) -> Response:
+    """Always succeeds, signed in or not. Signing out twice is not an error,
+    and reporting one would only tell a caller whether a cookie was valid."""
+    response.delete_cookie(session.COOKIE_NAME, path="/")
+    return Response(status_code=204, headers=dict(response.headers))
+
+
 @router.get("/me", response_model=MeResponse)
 async def me(
-    viewer: Viewer, container: Container = Depends(container_of)
+    request: Request,
+    viewer: Viewer,
+    container: Container = Depends(container_of),
 ) -> MeResponse:
     """Who this browser is, and the roster it belongs to.
 
@@ -135,6 +217,7 @@ async def me(
         member=viewer.value,
         members=container.settings.members,
         reader_index=container.reader_index(viewer),
+        signed_in=getattr(request.state, "from_session", False),
     )
 
 

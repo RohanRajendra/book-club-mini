@@ -555,6 +555,92 @@ describe('useMe', () => {
     await waitFor(() => expect(result.current.error).toBeTruthy())
     expect(result.current.loading).toBe(false)
   })
+
+  it('asks for a sign-in rather than reporting an error on 401', async () => {
+    // Not signed in is the app working correctly on a fresh browser, not a
+    // failure. Showing "Something went wrong" there would be a lie.
+    server.use(
+      http.get('/api/me', () =>
+        HttpResponse.json({ error: 'Sign in to continue.' }, { status: 401 }),
+      ),
+    )
+    const { result } = renderHook(() => useMe())
+    await waitFor(() => expect(result.current.needsSignIn).toBe(true))
+    expect(result.current.error).toBeNull()
+    expect(result.current.loading).toBe(false)
+    expect(result.current.member).toBeNull()
+  })
+
+  it('signing in adopts the identity the server returns', async () => {
+    server.use(
+      http.get('/api/me', () =>
+        HttpResponse.json({ error: 'Sign in to continue.' }, { status: 401 }),
+      ),
+      http.post('/api/session', () =>
+        HttpResponse.json({ member: 'Grace', members: ['Ada', 'Grace'], reader_index: 1 }),
+      ),
+    )
+    const { result } = renderHook(() => useMe())
+    await waitFor(() => expect(result.current.needsSignIn).toBe(true))
+
+    await act(async () => {
+      await result.current.signIn({ passphrase: 'right', member: 'Grace' })
+    })
+
+    expect(result.current.member).toBe('Grace')
+    expect(result.current.readerIndex).toBe(1)
+    expect(result.current.needsSignIn).toBe(false)
+  })
+
+  it('a refused sign-in leaves the card up and surfaces the reason', async () => {
+    server.use(
+      http.get('/api/me', () =>
+        HttpResponse.json({ error: 'Sign in to continue.' }, { status: 401 }),
+      ),
+      http.post('/api/session', () =>
+        HttpResponse.json({ error: "That didn't work." }, { status: 401 }),
+      ),
+    )
+    const { result } = renderHook(() => useMe())
+    await waitFor(() => expect(result.current.needsSignIn).toBe(true))
+
+    await expect(
+      result.current.signIn({ passphrase: 'wrong', member: 'Grace' }),
+    ).rejects.toThrow("That didn't work.")
+    expect(result.current.needsSignIn).toBe(true)
+    expect(result.current.member).toBeNull()
+  })
+
+  it('reports whether there is a session to sign out of', async () => {
+    // On an installation with no sign-in, identity comes from configuration
+    // and a sign-out button would clear nothing and change nothing.
+    server.use(
+      http.get('/api/me', () =>
+        HttpResponse.json({ member: 'Ada', members: ['Ada'], reader_index: 0 }),
+      ),
+    )
+    const { result } = renderHook(() => useMe())
+    await waitFor(() => expect(result.current.member).toBe('Ada'))
+    expect(result.current.signedIn).toBe(false)
+  })
+
+  it('signing out puts the card back', async () => {
+    server.use(
+      http.get('/api/me', () =>
+        HttpResponse.json({ member: 'Ada', members: ['Ada', 'Grace'], reader_index: 0 }),
+      ),
+      http.delete('/api/session', () => new HttpResponse(null, { status: 204 })),
+    )
+    const { result } = renderHook(() => useMe())
+    await waitFor(() => expect(result.current.member).toBe('Ada'))
+
+    await act(async () => {
+      await result.current.signOut()
+    })
+
+    expect(result.current.member).toBeNull()
+    expect(result.current.needsSignIn).toBe(true)
+  })
 })
 
 describe('useToggleSet', () => {
