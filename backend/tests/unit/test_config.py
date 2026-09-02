@@ -63,3 +63,32 @@ def test_settings_drops_trailing_empty_entries_from_members():
 
 def test_settings_reader_index_is_the_roster_position():
     assert build(member_name="Grace").reader_index == 1
+
+
+class TestKnownDataSourceIds:
+    """Resolving a database ID to its data source costs a Notion round trip
+    each. A long-lived process pays that once; a serverless one pays it on
+    every cold start, which is most requests."""
+
+    IDS = {
+        "notion_books_data_source_id": "books-ds",
+        "notion_posts_data_source_id": "posts-ds",
+    }
+
+    def test_absent_by_default_so_the_lookup_still_happens(self):
+        assert build().known_data_source_ids is None
+
+    def test_both_supplied_are_returned_as_a_pair(self):
+        assert build(**self.IDS).known_data_source_ids == ("books-ds", "posts-ds")
+
+    def test_one_alone_is_refused(self):
+        """Half the pair means one resolved and one not, for no benefit, and
+        hides which half is stale."""
+        for key in self.IDS:
+            with pytest.raises(ValidationError, match="both"):
+                build(**{key: "only-one"})
+
+    def test_an_empty_string_counts_as_absent(self):
+        """A Vercel environment variable set to nothing is the shape this
+        arrives in when someone clears it."""
+        assert build(**{k: "" for k in self.IDS}).known_data_source_ids is None

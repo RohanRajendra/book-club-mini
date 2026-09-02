@@ -72,12 +72,8 @@ def unwrap(result):
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health(container: Container = Depends(container_of)) -> HealthResponse:
-    return HealthResponse(
-        status="ok",
-        books_data_source_id=container.books_data_source_id,
-        posts_data_source_id=container.posts_data_source_id,
-    )
+async def health() -> HealthResponse:
+    return HealthResponse(status="ok")
 
 
 @router.get("/me", response_model=MeResponse)

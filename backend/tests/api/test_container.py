@@ -80,6 +80,46 @@ async def test_container_resolves_data_source_ids_once_on_startup(settings):
 
 
 @respx.mock
+async def test_configured_data_source_ids_skip_the_lookup(settings):
+    """Two Notion round trips on every start. A long-lived process pays that
+    once; a serverless one pays it on most requests."""
+    databases = respx.get(url__startswith=f"{BASE_URL}/databases/").mock(
+        return_value=httpx.Response(200, json=database("resolved-ds"))
+    )
+    configured = settings.model_copy(
+        update={
+            "notion_books_data_source_id": "books-ds",
+            "notion_posts_data_source_id": "posts-ds",
+        }
+    )
+
+    container = Container(configured)
+    await container.startup()
+    try:
+        assert container.books_data_source_id == "books-ds"
+        assert container.posts_data_source_id == "posts-ds"
+        assert databases.call_count == 0
+    finally:
+        await container.shutdown()
+
+
+@respx.mock
+async def test_the_resolved_ids_are_logged_so_they_can_be_configured(settings, caplog):
+    """The log line is where an operator gets the values to paste into a
+    deployment's environment. Without it the only way to learn them is to read
+    the Notion API by hand."""
+    respx.get(url__startswith=f"{BASE_URL}/databases/").mock(
+        return_value=httpx.Response(200, json=database("books-ds"))
+    )
+    container = Container(settings)
+    with caplog.at_level("INFO"):
+        await container.startup()
+    await container.shutdown()
+
+    assert "NOTION_BOOKS_DATA_SOURCE_ID=books-ds" in caplog.text
+
+
+@respx.mock
 async def test_container_shutdown_closes_the_http_client(settings):
     respx.get(url__startswith=f"{BASE_URL}/databases/").mock(
         return_value=httpx.Response(200, json=database("ds"))

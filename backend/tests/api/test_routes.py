@@ -12,16 +12,13 @@ from tests.api.conftest import BOOK
 from tests.builders import ADA, GRACE, make_post
 
 
-async def test_health_reports_both_data_source_ids(client, container):
-    """On in-memory adapters there are no data source IDs to report; the shape
-    is what this asserts. The real IDs are checked live."""
+async def test_health_says_only_that_the_app_is_up(client):
+    """It used to report both Notion data source IDs — a useful debugging aid
+    on localhost, and an unauthenticated disclosure of workspace structure the
+    moment the app has a public URL."""
     response = await client.get("/api/health")
     assert response.status_code == 200
-    assert set(response.json()) == {
-        "status",
-        "books_data_source_id",
-        "posts_data_source_id",
-    }
+    assert response.json() == {"status": "ok"}
 
 
 async def test_me_returns_the_configured_member_and_roster(client):

@@ -188,9 +188,16 @@ class MeResponse(BaseModel):
 
 
 class HealthResponse(BaseModel):
+    """Deliberately says nothing but whether the app is up.
+
+    It used to report both Notion data source IDs. That was a useful debugging
+    aid while the only caller was the owner on localhost, and it is an
+    unauthenticated disclosure of workspace structure the moment the app has a
+    public URL. The IDs are logged at startup instead, which is where an
+    operator actually wants them.
+    """
+
     status: str
-    books_data_source_id: str | None
-    posts_data_source_id: str | None
 
 
 class ErrorResponse(BaseModel):
