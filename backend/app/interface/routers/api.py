@@ -101,7 +101,7 @@ def viewer_of(
                 # Recorded so `/api/me` can tell the browser whether there is
                 # a session to sign out of.
                 request.state.from_session = True
-                return member
+                return container.canonical(member)
 
     if settings.auth_mode is AuthMode.OPEN and container.member is not None:
         return container.member
@@ -170,6 +170,10 @@ async def sign_in(
     if not verify_passphrase(payload.passphrase, settings.site_passphrase_hash):
         await asyncio.sleep(FAILED_SIGN_IN_DELAY)
         raise HTTPException(status_code=401, detail="That didn't work.")
+
+    # The roster's spelling, not whatever was typed: it is what gets written
+    # into Notion and rendered back, so it should not depend on the shift key.
+    member = container.canonical(member)
 
     response.set_cookie(
         session.COOKIE_NAME,

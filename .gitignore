@@ -227,3 +227,7 @@ __marimo__/
 node_modules/
 frontend/dist/
 frontend/coverage/
+
+# Vercel CLI state: project linkage and pulled environment variables. The
+# latter would put the Notion token in the working tree.
+.vercel

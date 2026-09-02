@@ -93,6 +93,27 @@ class TestSigningIn:
         )
         assert response.status_code == 200
 
+    async def test_the_roster_spelling_wins_over_what_was_typed(
+        self, shared_client
+    ):
+        """Whatever is typed here becomes the Member value written into Notion
+        and the name rendered back. It should not depend on the shift key."""
+        response = await shared_client.post(
+            "/api/session", json={"passphrase": PASSPHRASE, "member": "gRaCe"}
+        )
+        assert response.json()["member"] == "Grace"
+        assert (await shared_client.get("/api/me")).json()["member"] == "Grace"
+
+    async def test_a_post_carries_the_roster_spelling(self, shared_client):
+        await shared_client.post(
+            "/api/session", json={"passphrase": PASSPHRASE, "member": "grace"}
+        )
+        created = await shared_client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Thought", "body": "Hers."},
+        )
+        assert created.json()["member"] == "Grace"
+
     async def test_signing_out_revokes_the_session(self, shared_client):
         await shared_client.post(
             "/api/session", json={"passphrase": PASSPHRASE, "member": "Ada"}

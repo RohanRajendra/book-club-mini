@@ -110,6 +110,17 @@ class Container:
             await self._client.aclose()
             self._client = None
 
+    def canonical(self, member: MemberName) -> MemberName:
+        """The roster's own spelling of a member.
+
+        `MemberName` folds case when comparing, so `shreya` and `Shreya` are
+        one person — but whichever spelling arrives is the one that gets
+        written into Notion's Member column and rendered back. Settling on the
+        roster's spelling keeps the stored data tidy and the name on screen
+        consistent, whatever someone typed into the sign-in box.
+        """
+        return self.roster[self.roster.index(member)]
+
     def reader_index(self, member: MemberName) -> int:
         """A member's position in the roster, which selects their colour.
 
