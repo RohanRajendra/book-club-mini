@@ -49,7 +49,14 @@ class Container:
         self.posts_data_source_id: str | None = None
 
         self.roster = [MemberName(name) for name in settings.members]
-        self.member = MemberName(settings.member_name)
+
+        #: This installation's own member, under `open` auth. `None` when
+        #: identity arrives per request instead — see `viewer_of`.
+        self.member = (
+            MemberName(settings.member_name)
+            if settings.member_name is not None
+            else None
+        )
 
         # Singletons: stateless policies and the one cache.
         self._spoiler_policy = ChapterFirstSpoilerPolicy()
@@ -102,6 +109,16 @@ class Container:
         if self._client is not None:
             await self._client.aclose()
             self._client = None
+
+    def reader_index(self, member: MemberName) -> int:
+        """A member's position in the roster, which selects their colour.
+
+        Takes the member rather than reading configuration, because under a
+        shared deployment the colour belongs to whoever is asking and not to
+        the server. `MemberName` folds case, so a spelling difference between
+        the roster and a session is still one person.
+        """
+        return self.roster.index(member)
 
     # ------------------------------------------------------------ the graph
 

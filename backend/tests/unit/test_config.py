@@ -8,7 +8,7 @@ and attributes posts to a member the app does not know about. Fail at startup.
 import pytest
 from pydantic import ValidationError
 
-from app.config import Settings
+from app.config import AuthMode, Settings
 
 VALID = {
     "notion_token": "ntn_test",
@@ -92,3 +92,59 @@ class TestKnownDataSourceIds:
         """A Vercel environment variable set to nothing is the shape this
         arrives in when someone clears it."""
         assert build(**{k: "" for k in self.IDS}).known_data_source_ids is None
+
+
+class TestAuthModeDecidesWhatIsRequired:
+    """Where identity comes from, and what each mode cannot start without.
+
+    Both of these fail at startup on purpose. A deployment that boots and then
+    lets anyone in is far worse than one that refuses to boot.
+    """
+
+    SECRETS = {
+        "session_secret": "a-long-random-value",
+        "site_passphrase_hash": "pbkdf2_sha256$1$c2FsdA$aGFzaA",
+    }
+
+    def test_open_is_the_default_so_nothing_local_changes(self):
+        assert build().auth_mode is AuthMode.OPEN
+
+    def test_open_requires_a_member_name(self):
+        """With no login there is nothing else to identify the installation
+        by, and the app would have no one to attribute posts to."""
+        with pytest.raises(ValidationError, match="MEMBER_NAME is required"):
+            build(member_name=None)
+
+    def test_passphrase_does_not_need_a_member_name(self):
+        settings = build(auth_mode="passphrase", member_name=None, **self.SECRETS)
+        assert settings.member_name is None
+
+    def test_passphrase_needs_a_session_secret(self):
+        with pytest.raises(ValidationError, match="SESSION_SECRET"):
+            build(
+                auth_mode="passphrase",
+                member_name=None,
+                site_passphrase_hash=self.SECRETS["site_passphrase_hash"],
+            )
+
+    def test_passphrase_needs_a_passphrase_hash(self):
+        with pytest.raises(ValidationError, match="SITE_PASSPHRASE_HASH"):
+            build(
+                auth_mode="passphrase",
+                member_name=None,
+                session_secret=self.SECRETS["session_secret"],
+            )
+
+    def test_passphrase_needs_both(self):
+        with pytest.raises(ValidationError, match="SESSION_SECRET"):
+            build(auth_mode="passphrase", member_name=None)
+
+    def test_a_leftover_member_name_is_still_roster_checked(self):
+        """It means nothing under `passphrase`, but a name that is not in the
+        roster is a mistake worth reporting either way."""
+        with pytest.raises(ValidationError, match="MEMBER_NAME"):
+            build(auth_mode="passphrase", member_name="Alan", **self.SECRETS)
+
+    def test_an_unknown_auth_mode_is_refused(self):
+        with pytest.raises(ValidationError):
+            build(auth_mode="whatever")

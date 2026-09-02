@@ -8,7 +8,8 @@ from __future__ import annotations
 import pytest
 
 from app.domain.values import Position, PostType
-from tests.api.conftest import BOOK
+from app.composition import Container
+from tests.api.conftest import BOOK, sign_in_as
 from tests.builders import ADA, GRACE, make_post
 
 
@@ -19,6 +20,193 @@ async def test_health_says_only_that_the_app_is_up(client):
     response = await client.get("/api/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+class TestIdentityComesFromTheSession:
+    """Identity used to be one configuration value, `container.member`.
+
+    That is correct for a process on one person's machine and wrong the moment
+    two people share a deployment: both would be the same person, and every
+    post either of them wrote would be attributed to whoever the server was
+    configured as.
+    """
+
+    async def test_without_a_session_everything_is_refused(self, shared_client):
+        for method, path in (
+            ("GET", "/api/me"),
+            ("GET", "/api/books"),
+            ("GET", f"/api/books/{BOOK.value}/feed"),
+            ("POST", "/api/posts"),
+            ("PATCH", "/api/posts/whatever"),
+            ("DELETE", "/api/posts/whatever"),
+            ("GET", "/api/posts/whatever/body"),
+        ):
+            response = await shared_client.request(method, path, json={})
+            assert response.status_code == 401, f"{method} {path}"
+
+    async def test_health_stays_open(self, shared_client):
+        """A deployment platform has to be able to ask whether the app is up
+        without holding a passphrase."""
+        assert (await shared_client.get("/api/health")).status_code == 200
+
+    async def test_a_session_says_who_you_are(self, shared_client):
+        sign_in_as(shared_client, "Grace")
+        assert (await shared_client.get("/api/me")).json() == {
+            "member": "Grace",
+            "members": ["Ada", "Grace"],
+            "reader_index": 1,
+        }
+
+    async def test_the_colour_follows_the_session_not_the_server(self, shared_client):
+        """`reader_index` selects a colour. Read from configuration it would be
+        the same for both members of a shared deployment."""
+        sign_in_as(shared_client, "Ada")
+        assert (await shared_client.get("/api/me")).json()["reader_index"] == 0
+
+    async def test_a_post_is_attributed_to_the_session_member(self, shared_client):
+        sign_in_as(shared_client, "Grace")
+        created = await shared_client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Thought", "body": "Hers."},
+        )
+        assert created.status_code == 201
+        assert created.json()["member"] == "Grace"
+
+    async def test_two_browsers_are_two_people(self, shared_client, shared_container):
+        """The whole point. One deployment, one Notion workspace, two members."""
+        from httpx import ASGITransport, AsyncClient
+
+        from app.main import create_app
+
+        app = create_app()
+        app.state.container = shared_container
+        transport = ASGITransport(app=app, raise_app_exceptions=False)
+
+        async with AsyncClient(transport=transport, base_url="http://test") as other:
+            sign_in_as(shared_client, "Ada")
+            sign_in_as(other, "Grace")
+
+            mine = await shared_client.post(
+                "/api/posts",
+                json={"book_id": BOOK.value, "type": "Thought", "body": "Mine."},
+            )
+            theirs = await other.post(
+                "/api/posts",
+                json={"book_id": BOOK.value, "type": "Thought", "body": "Theirs."},
+            )
+
+        assert mine.json()["member"] == "Ada"
+        assert theirs.json()["member"] == "Grace"
+
+    async def test_you_can_edit_your_own_post(self, shared_client):
+        """The other half of ownership. Without this, a check that refuses
+        *everyone* passes the test above just as well as a correct one."""
+        sign_in_as(shared_client, "Grace")
+        created = await shared_client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Thought", "body": "Hers."},
+        )
+        response = await shared_client.patch(
+            f"/api/posts/{created.json()['id']}", json={"body": "Revised."}
+        )
+        assert response.status_code == 200
+        assert response.json()["body_preview"] == "Revised."
+
+    async def test_you_cannot_edit_the_other_members_post(self, shared_client):
+        """Ownership is now checked against the session rather than against the
+        server's configuration, which is what makes the check mean anything on
+        a shared deployment."""
+        sign_in_as(shared_client, "Ada")
+        created = await shared_client.post(
+            "/api/posts",
+            json={"book_id": BOOK.value, "type": "Thought", "body": "Ada's."},
+        )
+        post_id = created.json()["id"]
+
+        sign_in_as(shared_client, "Grace")
+        response = await shared_client.patch(
+            f"/api/posts/{post_id}", json={"body": "Grace's now."}
+        )
+        assert response.status_code == 403
+
+    async def test_a_leftover_member_name_is_not_an_identity(
+        self, shared_settings, uow_factory, seeded
+    ):
+        """The realistic misconfiguration: someone copies their local `.env`
+        into the deployment, `MEMBER_NAME` comes along, and the fallback that
+        exists for local use silently attributes every anonymous request to
+        that member. Under `passphrase` the configured name means nothing."""
+        from httpx import ASGITransport, AsyncClient
+
+        from app.main import create_app
+
+        leftover = shared_settings.model_copy(update={"member_name": "Ada"})
+        app = create_app()
+        app.state.container = Container(leftover, uow_factory=uow_factory)
+        transport = ASGITransport(app=app, raise_app_exceptions=False)
+
+        async with AsyncClient(transport=transport, base_url="http://test") as http:
+            assert (await http.get("/api/me")).status_code == 401
+            posted = await http.post(
+                "/api/posts",
+                json={"book_id": BOOK.value, "type": "Thought", "body": "Anon."},
+            )
+            assert posted.status_code == 401
+
+    async def test_a_forged_cookie_is_refused(self, shared_client):
+        from app.interface import session as session_module
+
+        shared_client.cookies.set(
+            session_module.COOKIE_NAME, session_module.issue("Ada", "not-the-secret")
+        )
+        assert (await shared_client.get("/api/me")).status_code == 401
+
+    async def test_a_member_no_longer_on_the_roster_is_refused(self, shared_client):
+        """A signature proves the app issued the token, not that the roster
+        still contains the name. Removing someone from MEMBERS signs them out."""
+        sign_in_as(shared_client, "Mallory")
+        assert (await shared_client.get("/api/me")).status_code == 401
+
+    async def test_the_roster_check_folds_case(self, shared_client):
+        """Notion's Member column and the roster are both typed by hand."""
+        sign_in_as(shared_client, "ada")
+        assert (await shared_client.get("/api/me")).status_code == 200
+
+
+class TestOpenModeIsUnchanged:
+    """The local two-machine workflow has to keep working exactly as it did,
+    with no login and no new configuration."""
+
+    async def test_no_session_is_needed(self, client):
+        assert (await client.get("/api/me")).status_code == 200
+
+    async def test_identity_is_still_the_configured_member(self, client):
+        assert (await client.get("/api/me")).json()["member"] == "Ada"
+
+    async def test_a_session_cookie_is_still_honoured_if_present(
+        self, container, seeded
+    ):
+        """So the sign-in flow can be exercised locally without switching
+        modes. Configuration is the fallback, not an override."""
+        from httpx import ASGITransport, AsyncClient
+
+        from app.interface import session as session_module
+        from app.main import create_app
+
+        configured = container.settings.model_copy(
+            update={"session_secret": "local-secret"}
+        )
+        local = Container(configured, uow_factory=container._uow_override)
+        app = create_app()
+        app.state.container = local
+        transport = ASGITransport(app=app, raise_app_exceptions=False)
+
+        async with AsyncClient(transport=transport, base_url="http://test") as http:
+            http.cookies.set(
+                session_module.COOKIE_NAME,
+                session_module.issue("Grace", "local-secret"),
+            )
+            assert (await http.get("/api/me")).json()["member"] == "Grace"
 
 
 async def test_me_returns_the_configured_member_and_roster(client):

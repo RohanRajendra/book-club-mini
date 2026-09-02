@@ -19,6 +19,8 @@ from app.composition import Container
 from app.config import Settings
 from app.domain.entities import Book
 from app.domain.values import BookId
+from app.interface import session
+from app.interface.passphrase import hash_passphrase
 from app.main import create_app
 from tests.builders import at_minute
 
@@ -64,3 +66,48 @@ async def client(container, seeded):
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://test") as http:
         yield http
+
+
+SESSION_SECRET = "test-session-secret"
+PASSPHRASE = "correct horse battery staple"
+
+#: Computed once. PBKDF2 is deliberately slow — that is the point of it — and
+#: at ~90ms a call, hashing per test buys nothing and costs seconds.
+PASSPHRASE_HASH = hash_passphrase(PASSPHRASE)
+
+
+@pytest.fixture
+def shared_settings() -> Settings:
+    """A deployment both members reach, rather than one person's process.
+
+    `member_name` is deliberately absent: under `passphrase` there is no such
+    thing as the server's own member, and leaving it set would let a bug fall
+    back to it without any test noticing.
+    """
+    return Settings(
+        _env_file=None,
+        **{k: v for k, v in SETTINGS.items() if k != "member_name"},
+        auth_mode="passphrase",
+        session_secret=SESSION_SECRET,
+        site_passphrase_hash=PASSPHRASE_HASH,
+    )
+
+
+@pytest.fixture
+def shared_container(shared_settings, uow_factory) -> Container:
+    return Container(shared_settings, uow_factory=uow_factory)
+
+
+@pytest.fixture
+async def shared_client(shared_container, seeded):
+    """A client with no session. Everything it asks for should be refused."""
+    app = create_app()
+    app.state.container = shared_container
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        yield http
+
+
+def sign_in_as(client: AsyncClient, member: str) -> None:
+    """Put a valid session cookie on `client`, without going through login."""
+    client.cookies.set(session.COOKIE_NAME, session.issue(member, SESSION_SECRET))
