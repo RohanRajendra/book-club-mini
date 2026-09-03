@@ -18,8 +18,9 @@ here.
 | Notion integration token | one per member | starts with `ntn_` |
 | Notion database IDs | two, shared | see [notion-setup.md](notion-setup.md) |
 
-Nothing else is needed. There is no container runtime, no database server and no
-deployment target.
+Nothing else is needed to run it locally: no container runtime and no database
+server. Hosting it for both members instead is a separate, additive step — see
+[deployment.md](deployment.md).
 
 ---
 
@@ -56,8 +57,9 @@ cd frontend && npm install && cd ..
 ```
 
 The backend installs in editable mode with its development extras, which brings
-in the test toolchain. There is no separate production install path; the
-application is only ever run locally.
+in the test toolchain. A deployment installs the runtime pins from
+`requirements.txt` at the repository root instead — the same packages without
+the test tooling, and CI runs the suite against both so they cannot drift.
 
 ### 2. Configure
 

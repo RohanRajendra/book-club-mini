@@ -7,8 +7,8 @@ they read, and reply to one another. Any post anchored ahead of a reader's own
 position is blurred for that reader until they choose to reveal it. Notion
 provides the database.
 
-Each member runs the full stack on their own machine. There is no shared server
-and nothing is deployed.
+Each member can run the full stack on their own machine, or both can share one
+deployment. The difference is a single setting — see [docs/deployment.md](docs/deployment.md).
 
 ```text
 ┌────────────────────────────────────────────────────────────────────┐
@@ -137,15 +137,20 @@ No test requires network access. Coverage floors are 100% line and branch on
 
 ## Limitations
 
-**There is no authentication.** Each installation declares its member name in
-configuration and the backend accepts it. Ownership checks on edit and delete
-prevent accidents, not attacks. This suits two people running on their own
-machines; exposing the application to a network is a redesign rather than a
-deployment.
+**Authentication is one shared passphrase.** Under `AUTH_MODE=passphrase` it
+keeps strangers out, and each browser then says which member it is; that choice
+is remembered in a signed cookie and checked against the roster on every
+request. It is not proof of identity — either member can pick either name, just
+as either could edit a configuration file before. Ownership checks on edit and
+delete still prevent accidents rather than attacks.
 
-**Blurring is presentational.** Blurred text is delivered to the browser and is
-readable in developer tools. It guards against accidental spoilers, not against
-a determined reader.
+Under `AUTH_MODE=open`, the default for a process on your own machine, there is
+no login at all and `MEMBER_NAME` says who you are.
+
+**Blurring is presentational.** A post's preview is delivered to the browser
+and is readable in developer tools. The *full* body of a post ahead of you is
+withheld by the server, but the preview is not. It guards against an accidental
+glance, not against a determined reader.
 
 **Rollback is compensating, not atomic.** Notion provides no transactions, so a
 failed multi-step write is undone by replaying inverse operations. A
