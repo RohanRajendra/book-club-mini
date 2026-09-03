@@ -5,9 +5,9 @@ the same book. Members record where they are, write progress notes, thoughts and
 questions as they read, and reply to one another. Any post anchored ahead of a
 reader's own position is blurred for that reader until they choose to reveal it.
 
-Notion is the database. There is no application server to deploy: each member
-runs the full stack locally, and the two installations meet only in the shared
-Notion workspace.
+Notion is the database. Members can each run the full stack locally, meeting
+only in the shared Notion workspace, or share one deployment — one setting
+decides which, and the rest of this document is the same either way.
 
 For the technology-independent specification of the domain and its
 architecture, see [domain-model.md](domain-model.md).
@@ -250,10 +250,20 @@ repository method feeding a filtered list into the existing assembly step.
 
 ### Deployment
 
-Out of scope by design. The application trusts its environment file for
-identity, and blurred text is sent to the browser rather than withheld at the
-server. Exposing it to a network is a redesign — real authentication,
-server-side redaction, per-user tokens — rather than a packaging exercise.
+Supported, and it was the redesign this section used to say it would be rather
+than a packaging exercise. Identity was a configuration value, so two people
+sharing one deployment would have been the same person — every post either
+wrote attributed to whichever member the server was configured as.
+
+Identity is now per request. `AUTH_MODE` selects where it comes from: a
+configuration value for a process on one person's machine, or a signed cookie
+for a deployment both reach. One shared passphrase gates the second, which is
+proportionate to what the app has always assumed — that both members are
+trusted and the checks exist to prevent accidents.
+
+What remains presentational is the preview. A post's first 1,900 characters
+reach the browser whether or not they are blurred; the full body of a post ahead
+of you is withheld at the server. See `docs/deployment.md`.
 
 ---
 

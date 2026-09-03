@@ -155,6 +155,20 @@ class FeedFilter(str, Enum):
     QUESTION = "Question"
 
 
+class SessionRequest(BaseModel):
+    """Signing in: one shared secret, and which member this browser is.
+
+    The two are separate on purpose. The passphrase keeps strangers out; the
+    name is a choice, not a claim being proved. That matches what the app has
+    always assumed — ownership checks prevent accidents, not attacks — and it
+    is no weaker than the configuration file it replaces, which either member
+    could edit.
+    """
+
+    passphrase: str
+    member: Identifier
+
+
 class BookRequest(BaseModel):
     title: str
     author: str | None = None
@@ -186,11 +200,24 @@ class MeResponse(BaseModel):
     members: list[str]
     reader_index: int
 
+    #: Whether this identity came from a cookie rather than from the server's
+    #: configuration. The browser needs to know, because on an installation
+    #: with no sign-in there is no session to end and a "sign out" button would
+    #: clear nothing and change nothing.
+    signed_in: bool = False
+
 
 class HealthResponse(BaseModel):
+    """Deliberately says nothing but whether the app is up.
+
+    It used to report both Notion data source IDs. That was a useful debugging
+    aid while the only caller was the owner on localhost, and it is an
+    unauthenticated disclosure of workspace structure the moment the app has a
+    public URL. The IDs are logged at startup instead, which is where an
+    operator actually wants them.
+    """
+
     status: str
-    books_data_source_id: str | None
-    posts_data_source_id: str | None
 
 
 class ErrorResponse(BaseModel):

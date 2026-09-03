@@ -9,6 +9,7 @@ import { Panel } from './components/Panel'
 import { PostEditor } from './components/PostEditor'
 import { QuickProgress } from './components/QuickProgress'
 import { ReplyBox } from './components/ReplyBox'
+import { SignIn } from './components/SignIn'
 import { Spine } from './components/Spine'
 import { TopBar } from './components/TopBar'
 import { useBooks } from './hooks/useBooks'
@@ -68,6 +69,12 @@ export default function App() {
     },
   })
 
+  // Before anything else: a browser with no session has no feed to show, and
+  // every request it could make would come back 401.
+  if (me.needsSignIn) {
+    return <SignIn onSignIn={me.signIn} />
+  }
+
   if (me.error) {
     return (
       <div className="shell">
@@ -119,6 +126,7 @@ export default function App() {
         refreshing={feed.loading}
         theme={theme.theme}
         onToggleTheme={theme.toggle}
+        onSignOut={me.signedIn ? me.signOut : undefined}
       />
 
       <div className="columns">

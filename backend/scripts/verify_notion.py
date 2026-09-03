@@ -189,6 +189,16 @@ def main() -> int:
             return 1
 
         print(f"\n{TICK} Both databases match the expected schema.")
+
+        # Resolving these costs a Notion round trip each, on every start. A
+        # deployment that starts often — anything serverless — should be told
+        # them directly. They are properties of the databases and do not change.
+        print(
+            "\nOptional, to skip the lookup on every start:\n"
+            f"  NOTION_BOOKS_DATA_SOURCE_ID={books_ds}\n"
+            f"  NOTION_POSTS_DATA_SOURCE_ID={posts_ds}"
+        )
+
         if args.seed:
             seed(http, books_ds)
     return 0

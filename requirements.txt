@@ -1,0 +1,10 @@
+# Runtime dependencies for the serverless function in api/. Vercel installs
+# from this file at the repository root; it does not read backend/pyproject.toml.
+#
+# uvicorn is deliberately absent — the platform provides the server. Everything
+# here is also in backend/pyproject.toml, and the two must not drift; a CI job
+# runs the whole test suite against exactly these pins.
+fastapi==0.141.1
+httpx==0.28.1
+pydantic==2.13.5
+pydantic-settings==2.15.0

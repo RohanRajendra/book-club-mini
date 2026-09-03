@@ -10,6 +10,7 @@ tests, and from scripts. `Depends` covers only the first.
 
 from __future__ import annotations
 
+import logging
 from typing import Callable
 
 from app.adapters.notion.http import NotionHttpClient
@@ -29,6 +30,8 @@ from app.domain.services import BodySplitter, PositionResolver, ScaleCalculator
 from app.domain.values import MemberName
 from app.ports.unit_of_work import UnitOfWork
 
+logger = logging.getLogger(__name__)
+
 
 class Container:
     def __init__(
@@ -46,7 +49,14 @@ class Container:
         self.posts_data_source_id: str | None = None
 
         self.roster = [MemberName(name) for name in settings.members]
-        self.member = MemberName(settings.member_name)
+
+        #: This installation's own member, under `open` auth. `None` when
+        #: identity arrives per request instead — see `viewer_of`.
+        self.member = (
+            MemberName(settings.member_name)
+            if settings.member_name is not None
+            else None
+        )
 
         # Singletons: stateless policies and the one cache.
         self._spoiler_policy = ChapterFirstSpoilerPolicy()
@@ -60,12 +70,27 @@ class Container:
         self._cache = CachingFeedQuery(GetFeed(self.uow_factory(), self._assembler))
 
     async def startup(self) -> None:
-        """Resolve data source IDs once. Failing here fails at boot rather than
-        on the first request."""
+        """Settle the data source IDs once. Failing here fails at boot rather
+        than on the first request.
+
+        Resolving them costs a Notion round trip each. A long-lived process
+        pays that once and forgets it; a serverless one pays it on every cold
+        start, which is most requests. So configured IDs are believed and the
+        lookup is skipped — they are properties of the databases and do not
+        change. The resolved values are logged when they are looked up, because
+        that is where an operator gets them to configure.
+        """
         if self._uow_override is not None:
             return
 
         self._client = NotionHttpClient(self.settings.notion_token)
+
+        known = self.settings.known_data_source_ids
+        if known is not None:
+            self.books_data_source_id, self.posts_data_source_id = known
+            logger.info("data source ids supplied by configuration")
+            return
+
         resolver = DataSourceResolver(self._client)
         self.books_data_source_id = await resolver.resolve(
             self.settings.notion_books_db_id
@@ -73,11 +98,38 @@ class Container:
         self.posts_data_source_id = await resolver.resolve(
             self.settings.notion_posts_db_id
         )
+        logger.info(
+            "resolved data source ids — set these to skip the lookup: "
+            "NOTION_BOOKS_DATA_SOURCE_ID=%s NOTION_POSTS_DATA_SOURCE_ID=%s",
+            self.books_data_source_id,
+            self.posts_data_source_id,
+        )
 
     async def shutdown(self) -> None:
         if self._client is not None:
             await self._client.aclose()
             self._client = None
+
+    def canonical(self, member: MemberName) -> MemberName:
+        """The roster's own spelling of a member.
+
+        `MemberName` folds case when comparing, so `shreya` and `Shreya` are
+        one person — but whichever spelling arrives is the one that gets
+        written into Notion's Member column and rendered back. Settling on the
+        roster's spelling keeps the stored data tidy and the name on screen
+        consistent, whatever someone typed into the sign-in box.
+        """
+        return self.roster[self.roster.index(member)]
+
+    def reader_index(self, member: MemberName) -> int:
+        """A member's position in the roster, which selects their colour.
+
+        Takes the member rather than reading configuration, because under a
+        shared deployment the colour belongs to whoever is asking and not to
+        the server. `MemberName` folds case, so a spelling difference between
+        the roster and a session is still one person.
+        """
+        return self.roster.index(member)
 
     # ------------------------------------------------------------ the graph
 

@@ -1,0 +1,103 @@
+name: CI
+
+# Pull requests get the checks. Pushes to main get the checks and, only if they
+# all pass, a deploy — Vercel's own git integration is disabled in vercel.json
+# so this workflow is the single route to production.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # A second push supersedes the first. Two deploys racing to production is a
+  # coin toss over which one wins.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is the floor pyproject.toml declares, 3.13 is what the
+        # repository pins and ./dev.sh runs, and 3.12 is what a host is most
+        # likely to offer in between. A version-only failure is exactly the
+        # kind that surfaces first in production.
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+
+      - name: Install the deployed pins as well
+        # requirements.txt is what the serverless function actually installs.
+        # Running the suite against it is what stops it drifting from
+        # pyproject.toml unnoticed.
+        run: pip install -r requirements.txt
+
+      - name: Test
+        working-directory: backend
+        run: python -m pytest -q --cov=app --cov-branch
+
+      - name: Coverage gates
+        working-directory: backend
+        run: python scripts/check_coverage.py
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+
+      - name: Test
+        working-directory: frontend
+        run: npm test -- --run
+
+      - name: Coverage gates
+        working-directory: frontend
+        run: npm run coverage
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+  deploy:
+    needs: [backend, frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    # Requires VERCEL_TOKEN, VERCEL_ORG_ID and VERCEL_PROJECT_ID as repository
+    # secrets. Nothing here reads the Notion token: that lives only in the
+    # Vercel project's own environment.
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy
+        run: |
+          npx --yes vercel@latest pull --yes --environment=production \
+            --token="${{ secrets.VERCEL_TOKEN }}"
+          npx --yes vercel@latest build --prod \
+            --token="${{ secrets.VERCEL_TOKEN }}"
+          npx --yes vercel@latest deploy --prebuilt --prod \
+            --token="${{ secrets.VERCEL_TOKEN }}"
